@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply px-6 py-3 rounded-lg font-medium transition-all duration-200;
+  }
+  
+  .btn-primary {
+    @apply bg-blue-600 text-white hover:bg-blue-700 active:scale-95;
+  }
+  
+  .btn-secondary {
+    @apply bg-gray-200 text-gray-800 hover:bg-gray-300;
+  }
+  
+  .btn-success {
+    @apply bg-green-600 text-white hover:bg-green-700;
+  }
+  
+  .btn-danger {
+    @apply bg-red-600 text-white hover:bg-red-700;
+  }
+  
+  .btn-disabled {
+    @apply bg-gray-300 text-gray-500 cursor-not-allowed;
+  }
+  
+  .card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-200 p-6;
+  }
+  
+  .storage-bar {
+    @apply w-full h-3 bg-gray-200 rounded-full overflow-hidden;
+  }
+  
+  .storage-fill {
+    @apply h-full transition-all duration-300 rounded-full;
+  }
+  
+  .stat-box {
+    @apply flex flex-col items-center justify-center p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg;
+  }
+  
+  .stat-number {
+    @apply text-3xl font-bold text-blue-600;
+  }
+  
+  .stat-label {
+    @apply text-sm text-gray-600 mt-1;
+  }
+}
+
+/* Camera Styles */
+.camera-container {
+  @apply relative w-full max-w-lg mx-auto;
+}
+
+.camera-preview {
+  @apply w-full aspect-square object-cover rounded-xl;
+}
+
+.camera-overlay {
+  @apply absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 rounded-xl;
+}
+
+/* Loading States */
+.loading-spinner {
+  @apply inline-block w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin;
+}
+
+/* Results */
+.result-success {
+  @apply bg-green-50 border-2 border-green-500 rounded-xl p-6 text-center;
+}
+
+.result-error {
+  @apply bg-red-50 border-2 border-red-500 rounded-xl p-6 text-center;
+}
+
+.result-warning {
+  @apply bg-yellow-50 border-2 border-yellow-500 rounded-xl p-6 text-center;
+}
