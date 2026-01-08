@@ -4,7 +4,6 @@ import Camera from '../../shared/components/Camera'
 import StorageMonitor from '../components/StorageMonitor'
 import { supabase } from '../../shared/lib/supabase'
 import { compressForTraining } from '../../shared/lib/imageCompression'
-import '../../shared/styles/globals.css'
 
 export default function TrainingApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
