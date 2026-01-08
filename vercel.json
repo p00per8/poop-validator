@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/training",
+      "destination": "/training-app/pages/index"
+    },
+    {
+      "source": "/",
+      "destination": "/testing-app/pages/index"
+    }
+  ]
+}
