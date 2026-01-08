@@ -2,7 +2,6 @@ import { useState } from 'react'
 import Head from 'next/head'
 import Camera from '../../shared/components/Camera'
 import Validator from '../components/Validator'
-import '../../shared/styles/globals.css'
 
 export default function TestingApp() {
   const [photo, setPhoto] = useState(null)
