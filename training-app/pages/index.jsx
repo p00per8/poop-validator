@@ -97,21 +97,33 @@ export default function TrainingApp() {
 
   async function loadStats() {
     try {
+      console.log('🔄 Loading stats...')
       const { data, error } = await supabase
         .from('training_photos')
         .select('label')
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ Supabase error:', error)
+        throw error
+      }
+
+      console.log('📊 Data received:', data)
 
       const valid = data?.filter(d => d.label === 'valid').length || 0
       const invalid = data?.filter(d => d.label === 'invalid').length || 0
 
-      setStats(prev => ({
-        ...prev,
-        valid,
-        invalid,
-        total: valid + invalid
-      }))
+      console.log('✅ Counts - Valid:', valid, 'Invalid:', invalid, 'Total:', valid + invalid)
+
+      setStats(prev => {
+        const newStats = {
+          ...prev,
+          valid,
+          invalid,
+          total: valid + invalid
+        }
+        console.log('📝 Setting stats:', newStats)
+        return newStats
+      })
     } catch (error) {
       console.error('Error loading stats:', error)
       setMessage({ type: 'error', text: 'Errore caricamento stats' })
@@ -120,12 +132,18 @@ export default function TrainingApp() {
 
   async function checkStorage() {
     try {
+      console.log('💾 Checking storage...')
       // Get total size from database records (more accurate)
       const { data: photos, error } = await supabase
         .from('training_photos')
         .select('file_size')
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ Storage error:', error)
+        throw error
+      }
+
+      console.log('📁 Photos data:', photos)
 
       const totalSize = photos?.reduce((acc, photo) => {
         return acc + (photo.file_size || 0)
@@ -134,11 +152,17 @@ export default function TrainingApp() {
       const usedMB = totalSize / 1024 / 1024
       const percentage = (usedMB / 1000) * 100
 
-      setStats(prev => ({
-        ...prev,
-        storageUsed: usedMB,
-        canUpload: percentage < 95
-      }))
+      console.log('📊 Storage - Total bytes:', totalSize, 'MB:', usedMB.toFixed(2), '%:', percentage.toFixed(2))
+
+      setStats(prev => {
+        const newStats = {
+          ...prev,
+          storageUsed: usedMB,
+          canUpload: percentage < 95
+        }
+        console.log('💾 Setting storage stats:', newStats)
+        return newStats
+      })
     } catch (error) {
       console.error('Error checking storage:', error)
     }
