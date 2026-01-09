@@ -335,11 +335,9 @@ export default function TrainingApp() {
             Raccogli foto per addestrare l'algoritmo di validazione
           </p>
           
-          <Link href="/dashboard">
-            <a className="inline-block mt-3 text-blue-600 hover:text-blue-800 font-medium">
+          <button onClick={() => router.push('/dashboard')}>
               📊 Vai alla Dashboard →
-            </a>
-          </Link>
+          </button>
         </div>
 
         <StorageMonitor 
