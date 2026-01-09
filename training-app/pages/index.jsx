@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
+import { useRouter } from 'next/router'
 import Camera from '../../shared/components/Camera'
 import StorageMonitor from '../components/StorageMonitor'
 import { supabase } from '../../shared/lib/supabase'
 import { compressForTraining } from '../../shared/lib/imageCompression'
 
 export default function TrainingApp() {
+  const router = useRouter()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [password, setPassword] = useState('')
   const [sessionExpiry, setSessionExpiry] = useState(null)
