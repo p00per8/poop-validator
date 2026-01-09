@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import Head from 'next/head'
-import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { supabase } from '../../shared/lib/supabase'
 import { Line } from 'react-chartjs-2'
@@ -156,9 +155,9 @@ export default function Dashboard() {
       <div className="max-w-6xl mx-auto">
         {/* Header with Back Button */}
         <div className="mb-8">
-          <button 
-            onClick={() => router.push('/training')}
-            className="text-blue-600 hover:text-blue-800 font-medium mb-4"
+          <button
+            onClick={() => router.back()}
+            className="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium mb-4"
           >
             ← Torna alla pagina principale
           </button>
