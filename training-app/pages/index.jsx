@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import Head from 'next/head'
+import Link from 'next/link'
 import Camera from '../../shared/components/Camera'
 import StorageMonitor from '../components/StorageMonitor'
 import { supabase } from '../../shared/lib/supabase'
@@ -13,11 +14,10 @@ export default function TrainingApp() {
     invalid: 0,
     total: 0,
     storageUsed: 0,
-    storageLimit: 1000, // 1GB in MB
+    storageLimit: 1000,
     canUpload: true
   })
-  const [mode, setMode] = useState(null) // 'valid' | 'invalid' | null
-  const [lastPhoto, setLastPhoto] = useState(null)
+  const [mode, setMode] = useState(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [message, setMessage] = useState(null)
   const [isRetraining, setIsRetraining] = useState(false)
@@ -31,7 +31,6 @@ export default function TrainingApp() {
 
   const handleLogin = (e) => {
     e.preventDefault()
-    // Simple password check (in production, use proper auth)
     if (password === process.env.NEXT_PUBLIC_TRAINING_PASSWORD || password === 'training123') {
       setIsAuthenticated(true)
       setMessage({ type: 'success', text: '✅ Autenticazione riuscita!' })
@@ -102,12 +101,9 @@ export default function TrainingApp() {
     setMessage({ type: 'info', text: '⏳ Compressione in corso...' })
 
     try {
-      // Compress photo
       const compressedBlob = await compressForTraining(photoBlob)
-
       setMessage({ type: 'info', text: '⏳ Upload in corso...' })
 
-      // Upload to Supabase Storage
       const filename = `${mode}_${Date.now()}.jpg`
       const { data: upload, error: uploadError } = await supabase.storage
         .from('training-dataset')
@@ -118,7 +114,6 @@ export default function TrainingApp() {
 
       if (uploadError) throw uploadError
 
-      // Save metadata to database
       const { error: dbError } = await supabase
         .from('training_photos')
         .insert({
@@ -131,17 +126,13 @@ export default function TrainingApp() {
 
       if (dbError) throw dbError
 
-      // Update UI
-      const previewUrl = URL.createObjectURL(compressedBlob)
-      setLastPhoto(previewUrl)
       setMessage({ 
         type: 'success', 
         text: `✅ Foto ${mode.toUpperCase()} salvata con successo!` 
       })
 
-      // Refresh stats
-      await loadStats()
-      await checkStorage()
+      // Force reload stats
+      await Promise.all([loadStats(), checkStorage()])
 
     } catch (error) {
       console.error('Error uploading photo:', error)
@@ -202,7 +193,6 @@ export default function TrainingApp() {
     }
   }
 
-  // Login screen
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
@@ -249,7 +239,6 @@ export default function TrainingApp() {
     )
   }
 
-  // Main training interface
   return (
     <div className="min-h-screen bg-gray-50 p-4 pb-20">
       <Head>
@@ -257,7 +246,6 @@ export default function TrainingApp() {
       </Head>
 
       <div className="max-w-4xl mx-auto">
-        {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold mb-2">
             🎓 Training Data Collector
@@ -265,16 +253,20 @@ export default function TrainingApp() {
           <p className="text-gray-600">
             Raccogli foto per addestrare l'algoritmo di validazione
           </p>
+          
+          <Link href="/training/dashboard">
+            <a className="inline-block mt-3 text-blue-600 hover:text-blue-800 font-medium">
+              📊 Vai alla Dashboard →
+            </a>
+          </Link>
         </div>
 
-        {/* Storage Monitor */}
         <StorageMonitor 
           used={stats.storageUsed}
           limit={stats.storageLimit}
           canUpload={stats.canUpload}
         />
 
-        {/* Stats */}
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="stat-box">
             <div className="stat-number text-green-600">{stats.valid}</div>
@@ -290,7 +282,6 @@ export default function TrainingApp() {
           </div>
         </div>
 
-        {/* Message */}
         {message && (
           <div className={`card mb-6 ${
             message.type === 'error' ? 'bg-red-50 border-red-200' :
@@ -301,7 +292,6 @@ export default function TrainingApp() {
           </div>
         )}
 
-        {/* Camera or Actions */}
         {!mode ? (
           <div className="space-y-4">
             {stats.canUpload && !isProcessing && (
@@ -321,7 +311,6 @@ export default function TrainingApp() {
               </>
             )}
 
-            {/* Retrain Button */}
             {stats.total >= 100 && stats.total % 100 === 0 && (
               <button
                 onClick={triggerRetrain}
@@ -360,19 +349,8 @@ export default function TrainingApp() {
             onCapture={handlePhotoCapture}
             onCancel={() => setMode(null)}
             label={mode}
+            fullscreen={true}
           />
-        )}
-
-        {/* Last Photo Preview */}
-        {lastPhoto && !mode && (
-          <div className="card mt-6">
-            <h3 className="text-lg font-semibold mb-3">📷 Ultima foto caricata</h3>
-            <img
-              src={lastPhoto}
-              alt="Last uploaded"
-              className="w-full max-w-sm mx-auto rounded-lg"
-            />
-          </div>
         )}
       </div>
     </div>
