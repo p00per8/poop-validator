@@ -9,6 +9,8 @@ import { compressForTraining } from '../../shared/lib/imageCompression'
 export default function TrainingApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [password, setPassword] = useState('')
+  const [sessionExpiry, setSessionExpiry] = useState(null)
+  const [timeRemaining, setTimeRemaining] = useState(null)
   const [stats, setStats] = useState({
     valid: 0,
     invalid: 0,
@@ -22,6 +24,42 @@ export default function TrainingApp() {
   const [message, setMessage] = useState(null)
   const [isRetraining, setIsRetraining] = useState(false)
 
+  // Check session on mount
+  useEffect(() => {
+    const savedExpiry = localStorage.getItem('training_session_expiry')
+    if (savedExpiry) {
+      const expiry = parseInt(savedExpiry)
+      if (Date.now() < expiry) {
+        setIsAuthenticated(true)
+        setSessionExpiry(expiry)
+      } else {
+        localStorage.removeItem('training_session_expiry')
+      }
+    }
+  }, [])
+
+  // Timer countdown
+  useEffect(() => {
+    if (!isAuthenticated || !sessionExpiry) return
+
+    const interval = setInterval(() => {
+      const remaining = sessionExpiry - Date.now()
+      
+      if (remaining <= 0) {
+        // Session expired
+        localStorage.removeItem('training_session_expiry')
+        setIsAuthenticated(false)
+        setSessionExpiry(null)
+        setTimeRemaining(null)
+        setMessage({ type: 'error', text: '⏱️ Sessione scaduta. Effettua nuovamente il login.' })
+      } else {
+        setTimeRemaining(remaining)
+      }
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [isAuthenticated, sessionExpiry])
+
   useEffect(() => {
     if (isAuthenticated) {
       loadStats()
@@ -32,11 +70,29 @@ export default function TrainingApp() {
   const handleLogin = (e) => {
     e.preventDefault()
     if (password === process.env.NEXT_PUBLIC_TRAINING_PASSWORD || password === 'training123') {
+      const expiry = Date.now() + (5 * 60 * 1000) // 5 minutes
+      localStorage.setItem('training_session_expiry', expiry.toString())
+      setSessionExpiry(expiry)
       setIsAuthenticated(true)
       setMessage({ type: 'success', text: '✅ Autenticazione riuscita!' })
     } else {
       setMessage({ type: 'error', text: '❌ Password errata' })
     }
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem('training_session_expiry')
+    setIsAuthenticated(false)
+    setSessionExpiry(null)
+    setTimeRemaining(null)
+  }
+
+  const formatTimeRemaining = (ms) => {
+    if (!ms) return '0:00'
+    const totalSeconds = Math.floor(ms / 1000)
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`
   }
 
   async function loadStats() {
@@ -241,7 +297,7 @@ export default function TrainingApp() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 pb-20">
+    <div className="min-h-screen bg-gray-50 p-4 pb-32">
       <Head>
         <title>Training App - Data Collection</title>
       </Head>
@@ -353,6 +409,29 @@ export default function TrainingApp() {
             fullscreen={true}
           />
         )}
+
+        {/* Session Timer - Fixed at bottom */}
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-lg p-4 z-40">
+          <div className="max-w-4xl mx-auto flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <div className="text-sm">
+                <span className="text-gray-600">⏱️ Sessione scade tra: </span>
+                <span className={`font-mono font-bold ${
+                  timeRemaining && timeRemaining < 60000 ? 'text-red-600' : 'text-green-600'
+                }`}>
+                  {formatTimeRemaining(timeRemaining)}
+                </span>
+              </div>
+            </div>
+            
+            <button
+              onClick={handleLogout}
+              className="text-sm text-red-600 hover:text-red-800 font-medium"
+            >
+              🚪 Logout
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )
