@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
+import { useRouter } from 'next/router'
 import { supabase } from '../../shared/lib/supabase'
 import { Line } from 'react-chartjs-2'
 import {
@@ -25,6 +26,7 @@ ChartJS.register(
 )
 
 export default function Dashboard() {
+  const router = useRouter()
   const [algorithmStats, setAlgorithmStats] = useState(null)
   const [trainingHistory, setTrainingHistory] = useState([])
   const [loading, setLoading] = useState(true)
@@ -154,11 +156,12 @@ export default function Dashboard() {
       <div className="max-w-6xl mx-auto">
         {/* Header with Back Button */}
         <div className="mb-8">
-          <Link href="/">
-            <button onClick={() => router.push('/')}>
-  ← Torna alla pagina principale
-</button>
-          </Link>
+          <button 
+            onClick={() => router.push('/training')}
+            className="text-blue-600 hover:text-blue-800 font-medium mb-4"
+          >
+            ← Torna alla pagina principale
+          </button>
           
           <h1 className="text-3xl font-bold mb-2">
             📊 Dashboard Algoritmo
