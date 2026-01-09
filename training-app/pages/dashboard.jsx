@@ -155,9 +155,9 @@ export default function Dashboard() {
         {/* Header with Back Button */}
         <div className="mb-8">
           <Link href="/">
-            <a className="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium mb-4">
-              ← Torna alla pagina principale
-            </a>
+            <button onClick={() => router.push('/')}>
+  ← Torna alla pagina principale
+</button>
           </Link>
           
           <h1 className="text-3xl font-bold mb-2">
