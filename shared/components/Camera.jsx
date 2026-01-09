@@ -1,161 +1,182 @@
-import { useState, useRef, useEffect } from 'react'
+import { useRef, useState, useEffect } from 'react'
 
-export default function Camera({ onCapture, onCancel, label }) {
+export default function Camera({ onCapture, onCancel, label, fullscreen = false }) {
   const videoRef = useRef(null)
-  const canvasRef = useRef(null)
-  const [stream, setStream] = useState(null)
-  const [photo, setPhoto] = useState(null)
-  const [error, setError] = useState(null)
-  const [facingMode, setFacingMode] = useState('environment') // 'user' or 'environment'
+  const streamRef = useRef(null)
+  const [hasFlash, setHasFlash] = useState(false)
+  const [flashEnabled, setFlashEnabled] = useState(false)
+  const [isReady, setIsReady] = useState(false)
 
   useEffect(() => {
     startCamera()
-    return () => stopCamera()
-  }, [facingMode])
+    return () => {
+      stopCamera()
+    }
+  }, [])
 
-  const startCamera = async () => {
+  async function startCamera() {
     try {
-      setError(null)
-      
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
+      // Request camera with ideal settings
+      const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: facingMode,
+          facingMode: 'environment',
           width: { ideal: 1920 },
-          height: { ideal: 1920 }
+          height: { ideal: 1080 }
         }
       })
+
+      streamRef.current = stream
       
       if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream
+        videoRef.current.srcObject = stream
       }
-      setStream(mediaStream)
-    } catch (err) {
-      console.error('Camera error:', err)
-      setError('Impossibile accedere alla fotocamera. Verifica i permessi.')
-    }
-  }
 
-  const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop())
-    }
-  }
-
-  const capturePhoto = () => {
-    if (!videoRef.current || !canvasRef.current) return
-
-    const video = videoRef.current
-    const canvas = canvasRef.current
-
-    // Set canvas size to video size
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-
-    // Draw video frame to canvas
-    const ctx = canvas.getContext('2d')
-    ctx.drawImage(video, 0, 0)
-
-    // Convert to blob
-    canvas.toBlob((blob) => {
-      if (blob) {
-        const url = URL.createObjectURL(blob)
-        setPhoto({ blob, url })
+      // Check if flash is available
+      const track = stream.getVideoTracks()[0]
+      const capabilities = track.getCapabilities()
+      
+      if (capabilities.torch) {
+        setHasFlash(true)
       }
-    }, 'image/jpeg', 0.95)
-  }
 
-  const confirmPhoto = () => {
-    if (photo) {
-      stopCamera()
-      onCapture(photo.blob)
+      setIsReady(true)
+
+    } catch (error) {
+      console.error('Error accessing camera:', error)
+      alert('Impossibile accedere alla fotocamera: ' + error.message)
+      onCancel()
     }
   }
 
-  const retakePhoto = () => {
-    if (photo) {
-      URL.revokeObjectURL(photo.url)
+  function stopCamera() {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+        track.stop()
+      })
     }
-    setPhoto(null)
   }
 
-  const handleCancel = () => {
-    stopCamera()
-    if (photo) {
-      URL.revokeObjectURL(photo.url)
+  async function toggleFlash() {
+    if (!streamRef.current || !hasFlash) return
+
+    try {
+      const track = streamRef.current.getVideoTracks()[0]
+      const newFlashState = !flashEnabled
+      
+      await track.applyConstraints({
+        advanced: [{ torch: newFlashState }]
+      })
+      
+      setFlashEnabled(newFlashState)
+    } catch (error) {
+      console.error('Error toggling flash:', error)
     }
-    onCancel()
   }
 
-  const switchCamera = () => {
-    setFacingMode(prev => prev === 'user' ? 'environment' : 'user')
+  async function capturePhoto() {
+    if (!videoRef.current) return
+
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = videoRef.current.videoWidth
+      canvas.height = videoRef.current.videoHeight
+      
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(videoRef.current, 0, 0)
+
+      canvas.toBlob((blob) => {
+        if (blob) {
+          stopCamera()
+          onCapture(blob)
+        }
+      }, 'image/jpeg', 0.95)
+
+    } catch (error) {
+      console.error('Error capturing photo:', error)
+      alert('Errore durante lo scatto: ' + error.message)
+    }
   }
 
-  if (error) {
-    return (
-      <div className="camera-container">
-        <div className="result-error">
-          <p className="text-lg font-medium mb-4">❌ {error}</p>
-          <button onClick={handleCancel} className="btn btn-secondary">
-            Chiudi
-          </button>
-        </div>
-      </div>
-    )
-  }
+  const containerClass = fullscreen
+    ? 'fixed inset-0 z-50 bg-black'
+    : 'relative'
 
   return (
-    <div className="camera-container">
-      {!photo ? (
-        <>
-          <div className="relative">
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="camera-preview"
-            />
-            {label && (
-              <div className="absolute top-4 left-4 bg-black bg-opacity-70 text-white px-4 py-2 rounded-lg">
-                <span className="font-medium">
-                  {label === 'valid' ? '✅ FOTO VALIDA' : '❌ FOTO INVALIDA'}
-                </span>
-              </div>
-            )}
-          </div>
+    <div className={containerClass}>
+      {/* Video Stream */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        className={fullscreen ? 'w-full h-full object-cover' : 'w-full rounded-lg'}
+      />
 
-          <canvas ref={canvasRef} style={{ display: 'none' }} />
+      {/* Controls Overlay */}
+      <div className={`${
+        fullscreen 
+          ? 'absolute inset-x-0 bottom-0 pb-safe' 
+          : 'mt-4'
+      }`}>
+        <div className="flex items-center justify-center space-x-6 p-6">
+          {/* Cancel Button */}
+          <button
+            onClick={() => {
+              stopCamera()
+              onCancel()
+            }}
+            className="w-16 h-16 rounded-full bg-gray-200 text-gray-800 flex items-center justify-center text-2xl font-bold shadow-lg hover:bg-gray-300 transition"
+          >
+            ✕
+          </button>
 
-          <div className="flex gap-4 mt-6">
-            <button onClick={handleCancel} className="btn btn-secondary flex-1">
-              Annulla
-            </button>
-            <button onClick={switchCamera} className="btn btn-secondary">
-              🔄
-            </button>
-            <button onClick={capturePhoto} className="btn btn-primary flex-1">
-              📸 Scatta
-            </button>
-          </div>
-        </>
-      ) : (
-        <>
-          <img src={photo.url} alt="Preview" className="camera-preview" />
+          {/* Capture Button */}
+          <button
+            onClick={capturePhoto}
+            disabled={!isReady}
+            className={`w-20 h-20 rounded-full flex items-center justify-center shadow-xl transition ${
+              label === 'valid'
+                ? 'bg-green-500 hover:bg-green-600'
+                : 'bg-red-500 hover:bg-red-600'
+            } ${!isReady ? 'opacity-50' : ''}`}
+          >
+            <div className="w-16 h-16 rounded-full bg-white border-4 border-current" />
+          </button>
 
-          <div className="mt-6 space-y-4">
-            <p className="text-center text-gray-600">
-              Conferma questa foto?
-            </p>
-            <div className="flex gap-4">
-              <button onClick={retakePhoto} className="btn btn-secondary flex-1">
-                🔄 Riscatta
-              </button>
-              <button onClick={confirmPhoto} className="btn btn-success flex-1">
-                ✓ Conferma
-              </button>
+          {/* Flash Button */}
+          {hasFlash && (
+            <button
+              onClick={toggleFlash}
+              className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl shadow-lg transition ${
+                flashEnabled
+                  ? 'bg-yellow-400 text-yellow-900 hover:bg-yellow-500'
+                  : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+              }`}
+            >
+              {flashEnabled ? '⚡' : '🔦'}
+            </button>
+          )}
+        </div>
+
+        {/* Label */}
+        {fullscreen && (
+          <div className="text-center pb-4">
+            <div className={`inline-block px-6 py-2 rounded-full font-bold text-white ${
+              label === 'valid' ? 'bg-green-500' : 'bg-red-500'
+            }`}>
+              {label === 'valid' ? '✅ VALID' : '❌ INVALID'}
             </div>
           </div>
-        </>
+        )}
+      </div>
+
+      {/* Loading Indicator */}
+      {!isReady && fullscreen && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="text-center">
+            <div className="loading-spinner mx-auto mb-4" style={{ borderColor: 'white', borderTopColor: 'transparent' }} />
+            <p className="text-white">Avvio fotocamera...</p>
+          </div>
+        </div>
       )}
     </div>
   )
