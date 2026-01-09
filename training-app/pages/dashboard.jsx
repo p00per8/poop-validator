@@ -154,7 +154,7 @@ export default function Dashboard() {
       <div className="max-w-6xl mx-auto">
         {/* Header with Back Button */}
         <div className="mb-8">
-          <Link href="/training">
+          <Link href="/">
             <a className="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium mb-4">
               ← Torna alla pagina principale
             </a>
