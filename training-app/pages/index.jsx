@@ -337,7 +337,10 @@ export default function TrainingApp() {
             Raccogli foto per addestrare l'algoritmo di validazione
           </p>
           
-          <button onClick={() => router.push('/dashboard')}>
+          <button 
+            onClick={() => router.push('./dashboard')}
+            className="inline-block mt-3 text-blue-600 hover:text-blue-800 font-medium"
+          >
               📊 Vai alla Dashboard →
           </button>
         </div>
