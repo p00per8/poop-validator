@@ -64,14 +64,15 @@ export default function TrainingApp() {
 
   async function checkStorage() {
     try {
-      const { data: files, error } = await supabase.storage
-        .from('training-dataset')
-        .list()
+      // Get total size from database records (more accurate)
+      const { data: photos, error } = await supabase
+        .from('training_photos')
+        .select('file_size')
 
       if (error) throw error
 
-      const totalSize = files?.reduce((acc, file) => {
-        return acc + (file.metadata?.size || 0)
+      const totalSize = photos?.reduce((acc, photo) => {
+        return acc + (photo.file_size || 0)
       }, 0) || 0
 
       const usedMB = totalSize / 1024 / 1024
@@ -254,7 +255,7 @@ export default function TrainingApp() {
             Raccogli foto per addestrare l'algoritmo di validazione
           </p>
           
-          <Link href="/training/dashboard">
+          <Link href="/dashboard">
             <a className="inline-block mt-3 text-blue-600 hover:text-blue-800 font-medium">
               📊 Vai alla Dashboard →
             </a>
