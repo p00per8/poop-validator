@@ -5,8 +5,8 @@
       "destination": "/training-app/pages/index"
     },
     {
-      "source": "/training/dashboard",
-      "destination": "/training-app/pages/dashboard"
+      "source": "/training/:path*",
+      "destination": "/training-app/pages/:path*"
     },
     {
       "source": "/",
