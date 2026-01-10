@@ -5,6 +5,10 @@
       "destination": "/training-app/pages/index"
     },
     {
+      "source": "/training/dashboard",
+      "destination": "/training-app/pages/dashboard"
+    },
+    {
       "source": "/",
       "destination": "/testing-app/pages/index"
     }
