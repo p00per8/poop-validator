@@ -336,7 +336,7 @@ export default function Dashboard() {
         {/* Header with Back Button */}
         <div className="mb-8">
           <button
-            onClick={() => router.push('/training')}
+            onClick={() => router.push('/training-app')}
             className="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium mb-4"
           >
             ← Torna alla raccolta dati
