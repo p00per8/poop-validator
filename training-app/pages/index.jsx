@@ -338,7 +338,7 @@ export default function TrainingApp() {
           </p>
           
           <button 
-            onClick={() => router.push('/training/dashboard')}
+            onClick={() => router.push('/training-app/dashboard')}
             className="inline-block mt-3 text-blue-600 hover:text-blue-800 font-medium"
           >
               📊 Vai alla Dashboard →
