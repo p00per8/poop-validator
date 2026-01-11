@@ -299,6 +299,142 @@ export default function TrainingDashboard() {
       }
     }
 
+    function translateFeatureName(key) {
+      // Traduzioni specifiche
+      const translations = {
+        // Color features
+        'color_b_mean': 'Media Blu',
+        'color_g_mean': 'Media Verde',
+        'color_r_mean': 'Media Rosso',
+        'color_b_std': 'Variazione Blu',
+        'color_g_std': 'Variazione Verde',
+        'color_r_std': 'Variazione Rosso',
+        'color_b_skewness': 'Asimmetria Blu',
+        'color_g_skewness': 'Asimmetria Verde',
+        'color_r_skewness': 'Asimmetria Rosso',
+        'color_b_kurtosis': 'Picco Blu',
+        'color_g_kurtosis': 'Picco Verde',
+        'color_r_kurtosis': 'Picco Rosso',
+        
+        // Spatial features
+        'spatial_brightness': 'Luminosità Zona',
+        'spatial_std': 'Variazione Zona',
+        
+        // Statistical features
+        'stat_mean': 'Media Generale',
+        'stat_std': 'Deviazione Standard',
+        'stat_variance': 'Varianza',
+        'stat_min': 'Valore Minimo',
+        'stat_max': 'Valore Massimo',
+        'stat_range': 'Intervallo',
+        'stat_median': 'Mediana',
+        'stat_skewness': 'Asimmetria',
+        'stat_kurtosis': 'Curtosi',
+        'stat_entropy': 'Entropia',
+        'stat_laplacian_var': 'Nitidezza (Laplaciano)',
+        'stat_rms_contrast': 'Contrasto RMS',
+        'stat_michelson_contrast': 'Contrasto Michelson',
+        'stat_percentile_25': '25° Percentile',
+        'stat_percentile_75': '75° Percentile',
+        
+        // Edge features
+        'edge_density_global': 'Densità Bordi Globale',
+        'edge_density': 'Densità Bordi',
+        'edge_orientation': 'Orientamento Bordi',
+        
+        // Gradient features
+        'gradient_mean': 'Gradiente Medio',
+        'gradient_std': 'Gradiente Variazione',
+        'gradient_max': 'Gradiente Massimo',
+        'gradient_min': 'Gradiente Minimo',
+        'gradient_median': 'Gradiente Mediano',
+        
+        // Contour features
+        'contour_area': 'Area Contorno',
+        'contour_perimeter': 'Perimetro',
+        'contour_circularity': 'Circolarità',
+        'contour_bbox_aspect_ratio': 'Rapporto Aspetto',
+        'contour_bbox_extent': 'Estensione Box',
+        'contour_solidity': 'Solidità',
+        'contour_hu_moment': 'Momento Hu',
+        'contour_count': 'Numero Contorni',
+        
+        // FFT features
+        'fft_magnitude_mean': 'Frequenza Media',
+        'fft_magnitude_std': 'Frequenza Variazione',
+        'fft_magnitude_max': 'Frequenza Massima',
+        'fft_energy': 'Energia Frequenza',
+        'fft_entropy': 'Entropia Frequenza',
+        
+        // GLCM features
+        'glcm_contrast': 'Contrasto Texture',
+        'glcm_dissimilarity': 'Dissimilarità Texture',
+        'glcm_homogeneity': 'Omogeneità Texture',
+        'glcm_energy': 'Energia Texture',
+        'glcm_correlation': 'Correlazione Texture',
+        
+        // LBP features
+        'lbp_hist': 'Pattern Locale',
+        
+        // Gabor features
+        'gabor': 'Filtro Gabor'
+      }
+      
+      // Check for exact matches first
+      if (translations[key]) {
+        return `${translations[key]} (${key})`
+      }
+      
+      // Pattern matching for complex keys
+      for (const [pattern, translation] of Object.entries(translations)) {
+        if (key.includes(pattern)) {
+          // Extract additional info (like zone numbers, bin numbers, angles)
+          const parts = key.split('_')
+          let extra = ''
+          
+          if (key.includes('zone_')) {
+            const zoneMatch = key.match(/zone_(\d+)_(\d+)/)
+            if (zoneMatch) extra = ` Z${zoneMatch[1]}${zoneMatch[2]}`
+          }
+          
+          if (key.includes('bin_')) {
+            const binMatch = key.match(/bin_(\d+)/)
+            if (binMatch) extra = ` Bin${binMatch[1]}`
+          }
+          
+          if (key.includes('angle_')) {
+            const angleMatch = key.match(/angle_(\d+)/)
+            if (angleMatch) {
+              const angleDeg = angleMatch[1] === '0' ? '0°' : 
+                              angleMatch[1] === '1' ? '45°' : 
+                              angleMatch[1] === '2' ? '90°' : '135°'
+              extra = ` ${angleDeg}`
+            }
+          }
+          
+          if (key.includes('_q') && !key.includes('_mean')) {
+            const qMatch = key.match(/_q(\d+)/)
+            if (qMatch) extra = ` Q${qMatch[1]}`
+          }
+          
+          if (key.includes('_f') && key.includes('_o')) {
+            const fMatch = key.match(/_f(\d+)/)
+            const oMatch = key.match(/_o(\d+)/)
+            if (fMatch && oMatch) extra = ` F${fMatch[1]}O${oMatch[1]}`
+          }
+          
+          return `${translation}${extra} (${key})`
+        }
+      }
+      
+      // Fallback: just clean up the key name
+      return key
+        .replace(/_/g, ' ')
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ') + ` (${key})`
+    }
+
     function formatFeatureValue(value) {
       if (typeof value === 'number') {
         return value.toFixed(3)
@@ -438,7 +574,7 @@ export default function TrainingDashboard() {
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                             {features.slice(0, 20).map(({ key, value }) => (
                               <div key={key} className="flex justify-between items-center bg-gray-50 rounded px-3 py-2">
-                                <span className="text-xs text-gray-600 truncate mr-2">{key.split('.').pop()}</span>
+                                <span className="text-xs text-gray-600 truncate mr-2">{translateFeatureName(key)}</span>
                                 <span className="text-sm font-mono font-bold text-gray-900">
                                   {formatFeatureValue(value)}
                                 </span>
