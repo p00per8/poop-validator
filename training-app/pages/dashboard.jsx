@@ -10,7 +10,7 @@ const supabase = createClient(
 export default function TrainingDashboard() {
   const router = useRouter()
   const [stats, setStats] = useState(null)
-  const [featureAnalysis, setFeatureAnalysis] = useState(null)
+  const [insights, setInsights] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -19,7 +19,6 @@ export default function TrainingDashboard() {
 
   async function loadDashboardData() {
     try {
-      // Carica tutte le foto con features
       const { data: photos, error } = await supabase
         .from('training_photos')
         .select('*')
@@ -33,23 +32,19 @@ export default function TrainingDashboard() {
         return
       }
 
-      // Calcola statistiche base
       const validPhotos = photos.filter(p => p.label === 'valid')
       const invalidPhotos = photos.filter(p => p.label === 'invalid')
 
-      const stats = {
+      setStats({
         total: photos.length,
         valid: validPhotos.length,
         invalid: invalidPhotos.length,
         storage_mb: (photos.reduce((sum, p) => sum + (p.file_size || 0), 0) / 1024 / 1024).toFixed(2)
-      }
+      })
 
-      setStats(stats)
-
-      // Analizza features
       if (validPhotos.length > 0 && invalidPhotos.length > 0) {
-        const analysis = analyzeFeatures(validPhotos, invalidPhotos)
-        setFeatureAnalysis(analysis)
+        const analysis = analyzeAndExplain(validPhotos, invalidPhotos)
+        setInsights(analysis)
       }
 
       setLoading(false)
@@ -59,8 +54,8 @@ export default function TrainingDashboard() {
     }
   }
 
-  function analyzeFeatures(validPhotos, invalidPhotos) {
-    // Estrai tutte le feature uniche
+  function analyzeAndExplain(validPhotos, invalidPhotos) {
+    // Estrai tutte le feature
     const allFeatureKeys = new Set()
     
     validPhotos.forEach(photo => {
@@ -75,7 +70,7 @@ export default function TrainingDashboard() {
       }
     })
 
-    // Calcola statistiche per ogni feature
+    // Analizza ogni feature
     const featureStats = []
 
     allFeatureKeys.forEach(featureKey => {
@@ -94,7 +89,6 @@ export default function TrainingDashboard() {
       const validStd = standardDeviation(validValues)
       const invalidStd = standardDeviation(invalidValues)
 
-      // Calcola "separation score" - quanto questa feature discrimina
       const meanDiff = Math.abs(validMean - invalidMean)
       const pooledStd = Math.sqrt((validStd ** 2 + invalidStd ** 2) / 2)
       const separationScore = pooledStd > 0 ? meanDiff / pooledStd : 0
@@ -103,48 +97,153 @@ export default function TrainingDashboard() {
         name: featureKey,
         validMean,
         invalidMean,
-        validStd,
-        invalidStd,
         difference: validMean - invalidMean,
         separationScore,
         category: getFeatureCategory(featureKey)
       })
     })
 
-    // Ordina per separation score (più discriminanti prima)
     featureStats.sort((a, b) => b.separationScore - a.separationScore)
 
-    // Top discriminating features
-    const topFeatures = featureStats.slice(0, 20)
-
-    // Group by category
-    const byCategory = {}
-    featureStats.forEach(f => {
-      if (!byCategory[f.category]) byCategory[f.category] = []
-      byCategory[f.category].push(f)
-    })
+    // Genera insights in italiano semplice
+    const topFeatures = featureStats.slice(0, 10)
+    const humanInsights = generateHumanInsights(topFeatures, validPhotos.length, invalidPhotos.length)
 
     return {
-      allFeatures: featureStats,
-      topFeatures,
-      byCategory,
-      totalFeatures: featureStats.length
+      topFeatures: topFeatures,
+      totalFeatures: featureStats.length,
+      insights: humanInsights,
+      byCategory: groupByCategory(featureStats)
     }
+  }
+
+  function generateHumanInsights(topFeatures, validCount, invalidCount) {
+    const insights = []
+
+    topFeatures.forEach((feature, idx) => {
+      if (idx >= 5) return // Solo top 5
+
+      const featureName = feature.name
+      const isValidHigher = feature.difference > 0
+      const diffPercent = Math.abs((feature.difference / (isValidHigher ? feature.invalidMean : feature.validMean)) * 100)
+
+      let explanation = ''
+      let icon = '🔍'
+      let importance = 'normale'
+
+      // Determina importanza
+      if (feature.separationScore > 1.5) {
+        importance = 'molto importante'
+        icon = '⭐'
+      } else if (feature.separationScore > 0.8) {
+        importance = 'importante'
+        icon = '💡'
+      }
+
+      // Spiega in base al tipo di feature
+      if (featureName.includes('blur') || featureName.includes('sharpness')) {
+        if (featureName.includes('blur') && isValidHigher) {
+          explanation = `Le foto CORRETTE sono più sfocate del normale. Questo potrebbe indicare che le foto valide hanno meno dettagli netti.`
+        } else if (featureName.includes('sharpness') && !isValidHigher) {
+          explanation = `Le foto SBAGLIATE sono più nitide e dettagliate. Le foto corrette tendono ad essere meno definite.`
+        } else {
+          explanation = `La nitidezza delle foto è un fattore discriminante tra foto corrette e sbagliate.`
+        }
+      } else if (featureName.includes('brightness') || featureName.includes('mean')) {
+        if (isValidHigher) {
+          explanation = `Le foto CORRETTE sono generalmente più luminose. La luminosità media è del ${diffPercent.toFixed(0)}% più alta.`
+        } else {
+          explanation = `Le foto SBAGLIATE sono più luminose. Le foto corrette tendono ad essere più scure.`
+        }
+      } else if (featureName.includes('edge')) {
+        if (isValidHigher) {
+          explanation = `Le foto CORRETTE hanno più bordi e contorni definiti. Questo suggerisce maggiore complessità visiva.`
+        } else {
+          explanation = `Le foto SBAGLIATE hanno più bordi visibili. Le foto corrette sono più uniformi.`
+        }
+      } else if (featureName.includes('color') || featureName.includes('rgb')) {
+        if (isValidHigher) {
+          explanation = `Le foto CORRETTE hanno tonalità di colore differenti. I valori cromatici sono mediamente più alti.`
+        } else {
+          explanation = `Le foto SBAGLIATE hanno colori più intensi in questa gamma. Le foto corrette usano tonalità diverse.`
+        }
+      } else if (featureName.includes('texture') || featureName.includes('glcm') || featureName.includes('lbp')) {
+        explanation = `La texture della superficie è diversa tra foto corrette e sbagliate. Questa è una caratteristica matematica della "grana" dell'immagine.`
+      } else if (featureName.includes('contrast') || featureName.includes('std')) {
+        if (isValidHigher) {
+          explanation = `Le foto CORRETTE hanno più contrasto (differenza tra zone chiare e scure).`
+        } else {
+          explanation = `Le foto SBAGLIATE hanno più contrasto. Le foto corrette sono più uniformi.`
+        }
+      } else if (featureName.includes('gradient')) {
+        explanation = `Le transizioni tra colori adiacenti sono diverse. Questo misura quanto "gradualmente" cambiano i colori.`
+      } else {
+        // Spiegazione generica
+        if (isValidHigher) {
+          explanation = `Questa caratteristica matematica è più alta nelle foto CORRETTE (${diffPercent.toFixed(0)}% in più).`
+        } else {
+          explanation = `Questa caratteristica matematica è più alta nelle foto SBAGLIATE (${diffPercent.toFixed(0)}% in più).`
+        }
+      }
+
+      insights.push({
+        icon,
+        importance,
+        title: humanizeFeatureName(featureName),
+        explanation,
+        technicalName: featureName,
+        validHigher: isValidHigher,
+        difference: diffPercent.toFixed(0),
+        score: feature.separationScore
+      })
+    })
+
+    return insights
+  }
+
+  function humanizeFeatureName(name) {
+    // Traduci nomi tecnici in italiano comprensibile
+    const translations = {
+      'blur': 'Sfocatura',
+      'sharpness': 'Nitidezza',
+      'brightness': 'Luminosità',
+      'contrast': 'Contrasto',
+      'edge': 'Bordi',
+      'color': 'Colore',
+      'texture': 'Texture',
+      'gradient': 'Gradiente',
+      'rgb': 'RGB',
+      'mean': 'Media',
+      'std': 'Variazione',
+      'glcm': 'Pattern Texture',
+      'lbp': 'Pattern Locale',
+      'spatial': 'Distribuzione Spaziale',
+      'hist': 'Distribuzione',
+      'zone': 'Zona',
+      'density': 'Densità'
+    }
+
+    let humanName = name
+    for (const [tech, human] of Object.entries(translations)) {
+      if (name.toLowerCase().includes(tech)) {
+        humanName = human
+        break
+      }
+    }
+
+    return humanName
   }
 
   function flattenFeatures(obj, prefix = '') {
     let result = {}
-    
     for (let key in obj) {
       const newKey = prefix ? `${prefix}.${key}` : key
-      
       if (typeof obj[key] === 'object' && obj[key] !== null && !Array.isArray(obj[key])) {
         Object.assign(result, flattenFeatures(obj[key], newKey))
       } else if (typeof obj[key] === 'number') {
         result[newKey] = obj[key]
       }
     }
-    
     return result
   }
 
@@ -162,211 +261,422 @@ export default function TrainingDashboard() {
     return Math.sqrt(average(squareDiffs))
   }
 
-  function getFeatureCategory(featureName) {
-    if (featureName.includes('color') || featureName.includes('rgb') || featureName.includes('hsv')) return 'Color'
-    if (featureName.includes('glcm') || featureName.includes('lbp') || featureName.includes('gabor')) return 'Texture'
-    if (featureName.includes('edge') || featureName.includes('contour') || featureName.includes('gradient')) return 'Shape & Edges'
-    if (featureName.includes('spatial') || featureName.includes('fft')) return 'Spatial'
-    if (featureName.includes('stat')) return 'Statistical'
-    return 'Other'
+  function getFeatureCategory(name) {
+    if (name.includes('color') || name.includes('rgb') || name.includes('hsv')) return 'Colore'
+    if (name.includes('texture') || name.includes('glcm') || name.includes('lbp')) return 'Texture'
+    if (name.includes('edge') || name.includes('gradient') || name.includes('contour')) return 'Bordi'
+    if (name.includes('spatial') || name.includes('zone')) return 'Spaziale'
+    return 'Altro'
   }
 
-  function getSeparationColor(score) {
-    if (score > 1.5) return 'bg-green-100 text-green-800'
-    if (score > 0.8) return 'bg-yellow-100 text-yellow-800'
-    return 'bg-gray-100 text-gray-600'
+  function groupByCategory(features) {
+    const groups = {}
+    features.forEach(f => {
+      const cat = f.category
+      if (!groups[cat]) groups[cat] = []
+      groups[cat].push(f)
+    })
+    return groups
   }
 
-  function getSeparationLabel(score) {
-    if (score > 1.5) return 'Forte'
-    if (score > 0.8) return 'Moderata'
-    return 'Debole'
+  function PhotoAccordion() {
+    const [allPhotos, setAllPhotos] = useState([])
+    const [openPhoto, setOpenPhoto] = useState(null)
+
+    useEffect(() => {
+      loadPhotos()
+    }, [])
+
+    async function loadPhotos() {
+      const { data, error } = await supabase
+        .from('training_photos')
+        .select('*')
+        .not('features', 'is', null)
+        .order('created_at', { ascending: false })
+
+      if (data && !error) {
+        setAllPhotos(data)
+      }
+    }
+
+    function formatFeatureValue(value) {
+      if (typeof value === 'number') {
+        return value.toFixed(3)
+      }
+      if (typeof value === 'boolean') {
+        return value ? '✓ Sì' : '✗ No'
+      }
+      if (Array.isArray(value)) {
+        return value.join(', ')
+      }
+      return String(value)
+    }
+
+    function getFeatureCount(features) {
+      const flattened = flattenFeatures(features)
+      return Object.keys(flattened).length
+    }
+
+    function categorizeFeatures(features) {
+      const flattened = flattenFeatures(features)
+      const categories = {
+        'Colore': [],
+        'Texture': [],
+        'Bordi': [],
+        'Spaziale': [],
+        'Statistiche': [],
+        'Altro': []
+      }
+
+      Object.entries(flattened).forEach(([key, value]) => {
+        let category = 'Altro'
+        
+        if (key.includes('color') || key.includes('rgb') || key.includes('hsv')) {
+          category = 'Colore'
+        } else if (key.includes('texture') || key.includes('glcm') || key.includes('lbp') || key.includes('gabor')) {
+          category = 'Texture'
+        } else if (key.includes('edge') || key.includes('gradient') || key.includes('contour')) {
+          category = 'Bordi'
+        } else if (key.includes('spatial') || key.includes('zone')) {
+          category = 'Spaziale'
+        } else if (key.includes('stat') || key.includes('mean') || key.includes('std')) {
+          category = 'Statistiche'
+        }
+
+        categories[category].push({ key, value })
+      })
+
+      return categories
+    }
+
+    return (
+      <div className="space-y-3">
+        {allPhotos.map((photo, idx) => {
+          const isOpen = openPhoto === photo.id
+          const featureCount = getFeatureCount(photo.features)
+          const categorized = categorizeFeatures(photo.features)
+          const uploadDate = new Date(photo.uploaded_at).toLocaleDateString('it-IT', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          })
+
+          return (
+            <div key={photo.id} className="border-2 border-gray-200 rounded-xl overflow-hidden hover:border-indigo-300 transition">
+              <button
+                onClick={() => setOpenPhoto(isOpen ? null : photo.id)}
+                className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition"
+              >
+                <div className="flex items-center gap-4">
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center text-2xl ${
+                    photo.label === 'valid' 
+                      ? 'bg-green-100 text-green-700' 
+                      : 'bg-red-100 text-red-700'
+                  }`}>
+                    {photo.label === 'valid' ? '✓' : '✗'}
+                  </div>
+                  <div className="text-left">
+                    <div className="font-bold text-gray-900">
+                      Foto #{idx + 1} - {photo.label === 'valid' ? 'CORRETTA' : 'SBAGLIATA'}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {featureCount} caratteristiche • Caricata il {uploadDate}
+                    </div>
+                  </div>
+                </div>
+                <div className={`transform transition-transform ${isOpen ? 'rotate-180' : ''}`}>
+                  <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </button>
+
+              {isOpen && (
+                <div className="border-t-2 border-gray-200 bg-gray-50 p-6">
+                  {/* Metadata */}
+                  <div className="bg-white rounded-lg p-4 mb-4 border border-gray-200">
+                    <h4 className="font-bold text-gray-900 mb-3">ℹ️ Informazioni</h4>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <span className="text-gray-600">ID:</span>{' '}
+                        <span className="font-mono text-xs">{photo.id.slice(0, 8)}...</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Dimensione:</span>{' '}
+                        <span className="font-medium">{(photo.file_size / 1024).toFixed(1)} KB</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Caricata da:</span>{' '}
+                        <span className="font-medium">{photo.uploaded_by || 'Sconosciuto'}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Usata nel training:</span>{' '}
+                        <span className="font-medium">{photo.used_in_training ? '✓ Sì' : '✗ No'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Features by Category */}
+                  <div className="space-y-4">
+                    {Object.entries(categorized).map(([category, features]) => {
+                      if (features.length === 0) return null
+                      
+                      return (
+                        <div key={category} className="bg-white rounded-lg p-4 border border-gray-200">
+                          <h4 className="font-bold text-gray-900 mb-3">
+                            {category === 'Colore' && '🎨 '}
+                            {category === 'Texture' && '🔲 '}
+                            {category === 'Bordi' && '📐 '}
+                            {category === 'Spaziale' && '🗺️ '}
+                            {category === 'Statistiche' && '📊 '}
+                            {category === 'Altro' && '📋 '}
+                            {category} ({features.length})
+                          </h4>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {features.slice(0, 20).map(({ key, value }) => (
+                              <div key={key} className="flex justify-between items-center bg-gray-50 rounded px-3 py-2">
+                                <span className="text-xs text-gray-600 truncate mr-2">{key.split('.').pop()}</span>
+                                <span className="text-sm font-mono font-bold text-gray-900">
+                                  {formatFeatureValue(value)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          
+                          {features.length > 20 && (
+                            <div className="mt-2 text-xs text-gray-500 text-center">
+                              ... e altre {features.length - 20} caratteristiche
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
+
+        {allPhotos.length === 0 && (
+          <div className="text-center py-12 text-gray-500">
+            <div className="text-5xl mb-4">📭</div>
+            <p>Nessuna foto con features estratte</p>
+          </div>
+        )}
+      </div>
+    )
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Caricamento dashboard...</p>
+          <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 text-lg">Sto analizzando le foto...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-7xl mx-auto px-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 py-8">
+      <div className="max-w-6xl mx-auto px-4">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">📊 Training Intelligence Dashboard</h1>
-            <p className="text-gray-600 mt-1">Analisi automatica delle feature estratte</p>
+            <h1 className="text-4xl font-bold text-gray-900 mb-2">🧠 Cosa Ha Imparato l'AI</h1>
+            <p className="text-gray-600 text-lg">Scopri quali caratteristiche distinguono le foto corrette da quelle sbagliate</p>
           </div>
           <button
             onClick={() => router.push('/training')}
-            className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+            className="px-6 py-3 bg-white border-2 border-gray-300 rounded-xl hover:bg-gray-50 transition font-medium shadow-sm"
           >
             ← Torna al Training
           </button>
         </div>
 
-        {/* Stats Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <div className="text-sm text-gray-600 mb-1">Foto Totali</div>
-            <div className="text-3xl font-bold text-gray-900">{stats?.total || 0}</div>
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-white rounded-2xl shadow-lg border-2 border-gray-100 p-6">
+            <div className="text-sm text-gray-500 mb-2">📸 Foto Totali</div>
+            <div className="text-4xl font-bold text-gray-900">{stats?.total || 0}</div>
           </div>
-          <div className="bg-green-50 rounded-xl shadow-sm border border-green-200 p-6">
-            <div className="text-sm text-green-600 mb-1">✅ Foto Valid</div>
-            <div className="text-3xl font-bold text-green-700">{stats?.valid || 0}</div>
+          <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl shadow-lg border-2 border-green-200 p-6">
+            <div className="text-sm text-green-700 font-medium mb-2">✅ Foto Corrette</div>
+            <div className="text-4xl font-bold text-green-700">{stats?.valid || 0}</div>
           </div>
-          <div className="bg-red-50 rounded-xl shadow-sm border border-red-200 p-6">
-            <div className="text-sm text-red-600 mb-1">❌ Foto Invalid</div>
-            <div className="text-3xl font-bold text-red-700">{stats?.invalid || 0}</div>
-          </div>
-          <div className="bg-blue-50 rounded-xl shadow-sm border border-blue-200 p-6">
-            <div className="text-sm text-blue-600 mb-1">🔍 Features Estratte</div>
-            <div className="text-3xl font-bold text-blue-700">{featureAnalysis?.totalFeatures || 0}</div>
+          <div className="bg-gradient-to-br from-red-50 to-rose-50 rounded-2xl shadow-lg border-2 border-red-200 p-6">
+            <div className="text-sm text-red-700 font-medium mb-2">❌ Foto Sbagliate</div>
+            <div className="text-4xl font-bold text-red-700">{stats?.invalid || 0}</div>
           </div>
         </div>
 
-        {!featureAnalysis && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6 text-center">
-            <p className="text-yellow-800">
-              ⚠️ Carica almeno 1 foto valid e 1 foto invalid con features estratte per vedere l'analisi.
+        {!insights && (
+          <div className="bg-yellow-50 border-2 border-yellow-200 rounded-2xl p-8 text-center shadow-lg">
+            <div className="text-5xl mb-4">⚠️</div>
+            <p className="text-yellow-800 text-lg font-medium">
+              Carica almeno 1 foto corretta e 1 foto sbagliata per vedere l'analisi
             </p>
           </div>
         )}
 
-        {featureAnalysis && (
+        {insights && (
           <>
-            {/* Top Discriminating Features */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-              <h2 className="text-xl font-bold text-gray-900 mb-4">
-                🎯 Top 20 Feature più Discriminanti
+            {/* Main Insights */}
+            <div className="bg-white rounded-2xl shadow-xl border-2 border-indigo-100 p-8 mb-8">
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">
+                💡 Scoperte Principali
               </h2>
+              
+              <div className="space-y-6">
+                {insights.insights.map((insight, idx) => (
+                  <div key={idx} className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-6 border-2 border-purple-100">
+                    <div className="flex items-start gap-4">
+                      <div className="text-4xl">{insight.icon}</div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="text-xl font-bold text-gray-900">{insight.title}</h3>
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                            insight.importance === 'molto importante' 
+                              ? 'bg-green-200 text-green-800' 
+                              : 'bg-blue-200 text-blue-800'
+                          }`}>
+                            {insight.importance.toUpperCase()}
+                          </span>
+                        </div>
+                        <p className="text-gray-700 text-lg leading-relaxed">{insight.explanation}</p>
+                        <div className="mt-3 text-sm text-gray-500">
+                          Differenza: <span className="font-bold">{insight.difference}%</span> • 
+                          Affidabilità: <span className="font-bold">{(insight.score * 100).toFixed(0)}%</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Summary Box */}
+            <div className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl shadow-xl p-8 text-white mb-8">
+              <h3 className="text-2xl font-bold mb-4">📊 In Sintesi</h3>
+              <div className="text-lg space-y-3">
+                <p>
+                  ✨ Ho analizzato <span className="font-bold">{insights.totalFeatures}</span> caratteristiche matematiche diverse
+                </p>
+                <p>
+                  🎯 Ho trovato <span className="font-bold">{insights.topFeatures.filter(f => f.separationScore > 1.5).length}</span> caratteristiche molto importanti che distinguono le foto
+                </p>
+                <p>
+                  🧪 Queste caratteristiche sono state estratte automaticamente, senza che nessuno dicesse all'AI cosa cercare
+                </p>
+              </div>
+            </div>
+
+            {/* Metrics Dashboard */}
+            <div className="bg-white rounded-2xl shadow-xl border-2 border-gray-200 p-8 mb-8">
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">📈 Metriche e Statistiche</h2>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border-2 border-blue-200">
+                  <div className="text-sm text-blue-700 font-medium mb-1">Feature Totali</div>
+                  <div className="text-3xl font-bold text-blue-900">{insights.totalFeatures}</div>
+                  <div className="text-xs text-blue-600 mt-1">Caratteristiche estratte</div>
+                </div>
+                
+                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border-2 border-green-200">
+                  <div className="text-sm text-green-700 font-medium mb-1">Feature Forti</div>
+                  <div className="text-3xl font-bold text-green-900">
+                    {insights.topFeatures.filter(f => f.separationScore > 1.5).length}
+                  </div>
+                  <div className="text-xs text-green-600 mt-1">Score {'>'} 1.5</div>
+                </div>
+                
+                <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-xl p-4 border-2 border-yellow-200">
+                  <div className="text-sm text-yellow-700 font-medium mb-1">Feature Moderate</div>
+                  <div className="text-3xl font-bold text-yellow-900">
+                    {insights.topFeatures.filter(f => f.separationScore > 0.8 && f.separationScore <= 1.5).length}
+                  </div>
+                  <div className="text-xs text-yellow-600 mt-1">Score 0.8-1.5</div>
+                </div>
+                
+                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border-2 border-purple-200">
+                  <div className="text-sm text-purple-700 font-medium mb-1">Affidabilità Media</div>
+                  <div className="text-3xl font-bold text-purple-900">
+                    {(insights.topFeatures.slice(0, 5).reduce((acc, f) => acc + f.separationScore, 0) / 5).toFixed(1)}
+                  </div>
+                  <div className="text-xs text-purple-600 mt-1">Top 5 features</div>
+                </div>
+              </div>
+
+              {/* Category Breakdown */}
+              <div className="bg-gray-50 rounded-xl p-6">
+                <h3 className="font-bold text-gray-900 mb-4">Distribuzione per Categoria</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {Object.entries(insights.byCategory).map(([category, features]) => {
+                    const strongCount = features.filter(f => f.separationScore > 1.5).length
+                    const percentage = ((strongCount / features.length) * 100).toFixed(0)
+                    
+                    return (
+                      <div key={category} className="text-center">
+                        <div className="text-2xl mb-2">
+                          {category === 'Colore' && '🎨'}
+                          {category === 'Texture' && '🔲'}
+                          {category === 'Bordi' && '📐'}
+                          {category === 'Spaziale' && '🗺️'}
+                          {category === 'Altro' && '📊'}
+                        </div>
+                        <div className="font-bold text-gray-900">{category}</div>
+                        <div className="text-sm text-gray-600">{features.length} features</div>
+                        <div className="text-xs text-green-600 font-medium mt-1">
+                          {strongCount} forti ({percentage}%)
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Per-Photo Accordion */}
+            <div className="bg-white rounded-2xl shadow-xl border-2 border-gray-200 p-8 mb-8">
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">📋 Dettaglio Foto per Foto</h2>
               <p className="text-gray-600 mb-6">
-                Queste feature mostrano la differenza più marcata tra foto valid e invalid
+                Esplora le caratteristiche estratte da ogni singola foto
               </p>
               
-              <div className="space-y-3">
-                {featureAnalysis.topFeatures.map((feature, idx) => (
-                  <div key={feature.name} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex items-center gap-3 flex-1">
-                        <div className="text-lg font-bold text-gray-400 w-8">#{idx + 1}</div>
-                        <div className="flex-1">
-                          <div className="font-medium text-gray-900">{feature.name}</div>
-                          <div className="text-sm text-gray-500">{feature.category}</div>
-                        </div>
+              <PhotoAccordion />
+            </div>
+
+            {/* Technical Details (collapsed) */}
+            <details className="bg-white rounded-2xl shadow-lg border-2 border-gray-200 p-6">
+              <summary className="text-lg font-bold text-gray-900 cursor-pointer hover:text-indigo-600 transition">
+                🔬 Dettagli Tecnici (per esperti)
+              </summary>
+              <div className="mt-6 space-y-4">
+                {insights.topFeatures.slice(0, 10).map((feature, idx) => (
+                  <div key={idx} className="border-l-4 border-indigo-500 pl-4 py-2">
+                    <div className="font-mono text-sm text-gray-600">{feature.name}</div>
+                    <div className="grid grid-cols-2 gap-4 mt-2 text-sm">
+                      <div className="bg-green-50 rounded p-2">
+                        <span className="text-green-600 font-medium">VALID: </span>
+                        <span className="font-bold">{feature.validMean.toFixed(3)}</span>
                       </div>
-                      <div className={`px-3 py-1 rounded-full text-xs font-medium ${getSeparationColor(feature.separationScore)}`}>
-                        {getSeparationLabel(feature.separationScore)} ({feature.separationScore.toFixed(2)})
-                      </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-4 mt-3">
-                      <div className="bg-green-50 rounded-lg p-3">
-                        <div className="text-xs text-green-600 font-medium mb-1">✅ VALID</div>
-                        <div className="text-sm">
-                          <span className="font-bold text-green-700">{feature.validMean.toFixed(3)}</span>
-                          <span className="text-green-600 ml-2">±{feature.validStd.toFixed(3)}</span>
-                        </div>
-                      </div>
-                      <div className="bg-red-50 rounded-lg p-3">
-                        <div className="text-xs text-red-600 font-medium mb-1">❌ INVALID</div>
-                        <div className="text-sm">
-                          <span className="font-bold text-red-700">{feature.invalidMean.toFixed(3)}</span>
-                          <span className="text-red-600 ml-2">±{feature.invalidStd.toFixed(3)}</span>
-                        </div>
+                      <div className="bg-red-50 rounded p-2">
+                        <span className="text-red-600 font-medium">INVALID: </span>
+                        <span className="font-bold">{feature.invalidMean.toFixed(3)}</span>
                       </div>
                     </div>
-                    
-                    {/* Visual comparison bar */}
-                    <div className="mt-3 relative h-8 bg-gray-100 rounded-lg overflow-hidden">
-                      <div 
-                        className="absolute top-0 left-0 h-full bg-green-500 opacity-50"
-                        style={{ width: `${Math.min((feature.validMean / (feature.validMean + feature.invalidMean)) * 100, 100)}%` }}
-                      ></div>
-                      <div 
-                        className="absolute top-0 right-0 h-full bg-red-500 opacity-50"
-                        style={{ width: `${Math.min((feature.invalidMean / (feature.validMean + feature.invalidMean)) * 100, 100)}%` }}
-                      ></div>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-xs font-medium text-gray-700">
-                          Δ = {Math.abs(feature.difference).toFixed(3)}
-                        </span>
-                      </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Separation Score: {feature.separationScore.toFixed(2)}
                     </div>
                   </div>
                 ))}
               </div>
-            </div>
-
-            {/* Features by Category */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-              <h2 className="text-xl font-bold text-gray-900 mb-4">
-                📂 Feature per Categoria
-              </h2>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {Object.entries(featureAnalysis.byCategory).map(([category, features]) => {
-                  const strongFeatures = features.filter(f => f.separationScore > 1.5).length
-                  const moderateFeatures = features.filter(f => f.separationScore > 0.8 && f.separationScore <= 1.5).length
-                  
-                  return (
-                    <div key={category} className="border border-gray-200 rounded-lg p-4">
-                      <h3 className="font-bold text-gray-900 mb-2">{category}</h3>
-                      <div className="text-2xl font-bold text-blue-600 mb-2">{features.length}</div>
-                      <div className="space-y-1 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-green-600">Forti</span>
-                          <span className="font-medium">{strongFeatures}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-yellow-600">Moderate</span>
-                          <span className="font-medium">{moderateFeatures}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Deboli</span>
-                          <span className="font-medium">{features.length - strongFeatures - moderateFeatures}</span>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* Insights */}
-            <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl shadow-sm border border-purple-200 p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-4">
-                💡 Pattern Scoperti Automaticamente
-              </h2>
-              
-              <div className="space-y-3">
-                {featureAnalysis.topFeatures.slice(0, 5).map((feature, idx) => (
-                  <div key={idx} className="bg-white rounded-lg p-4 border border-purple-100">
-                    <div className="flex items-start gap-3">
-                      <div className="text-2xl">🔍</div>
-                      <div className="flex-1">
-                        <div className="font-medium text-gray-900 mb-1">
-                          {feature.name.split('.').pop().replace(/_/g, ' ')}
-                        </div>
-                        <p className="text-sm text-gray-600">
-                          {feature.difference > 0 ? (
-                            <span>Le foto <span className="font-bold text-green-600">valid</span> hanno valori <span className="font-bold">{Math.abs(feature.difference).toFixed(1)}x più alti</span> di questa caratteristica</span>
-                          ) : (
-                            <span>Le foto <span className="font-bold text-red-600">invalid</span> hanno valori <span className="font-bold">{Math.abs(feature.difference).toFixed(1)}x più alti</span> di questa caratteristica</span>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            </details>
           </>
         )}
       </div>
