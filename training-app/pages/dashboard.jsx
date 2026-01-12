@@ -38,11 +38,11 @@ export default function TrainingDashboard() {
   const [endDate, setEndDate] = useState('')
   const [prediction, setPrediction] = useState(null)
 
-  // Imposta date predefinite (ultimi 30 giorni)
+  // Imposta date predefinite (ultimi 7 giorni)
   useEffect(() => {
     const end = new Date()
     const start = new Date()
-    start.setDate(start.getDate() - 30)
+    start.setDate(start.getDate() - 7)
     
     setStartDate(start.toISOString().split('T')[0])
     setEndDate(end.toISOString().split('T')[0])
