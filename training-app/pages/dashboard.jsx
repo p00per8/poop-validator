@@ -52,9 +52,9 @@ export default function TrainingDashboard() {
     loadDashboardData()
   }, [])
 
-  // Ricarica quando cambiano le date
+  // Carica attività quando le date sono pronte o quando cambiano
   useEffect(() => {
-    if (startDate && endDate && stats) {
+    if (startDate && endDate) {
       loadActivityData()
     }
   }, [startDate, endDate])
@@ -89,10 +89,14 @@ export default function TrainingDashboard() {
         setInsights(analysis)
       }
 
-      // Carica anche i dati di attività
-      await loadActivityData()
-
       setLoading(false)
+      
+      // Carica dati attività dopo aver impostato le stats
+      // Questo garantisce che le previsioni abbiano i dati necessari
+      if (startDate && endDate) {
+        loadActivityData()
+      }
+
     } catch (error) {
       console.error('Error loading dashboard:', error)
       setLoading(false)
@@ -135,10 +139,14 @@ export default function TrainingDashboard() {
 
       setDailyActivities(activities)
 
-      // Calcola previsioni
-      if (stats) {
-        calculatePredictions(stats.total, activities)
-      }
+      // Calcola previsioni - usa stats.total direttamente dallo state
+      // Se stats è ancora null, le previsioni verranno calcolate al prossimo render
+      const { data: allPhotos } = await supabase
+        .from('training_photos')
+        .select('id')
+      
+      const totalPhotos = allPhotos?.length || 0
+      calculatePredictions(totalPhotos, activities)
 
     } catch (error) {
       console.error('Errore caricamento attività:', error)
