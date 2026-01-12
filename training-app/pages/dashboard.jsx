@@ -1,6 +1,25 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { createClient } from '@supabase/supabase-js'
+import { 
+  Chart as ChartJS, 
+  CategoryScale, 
+  LinearScale, 
+  BarElement, 
+  Title, 
+  Tooltip, 
+  Legend 
+} from 'chart.js'
+import { Bar } from 'react-chartjs-2'
+
+ChartJS.register(
+  CategoryScale, 
+  LinearScale, 
+  BarElement,
+  Title, 
+  Tooltip, 
+  Legend
+)
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -12,10 +31,33 @@ export default function TrainingDashboard() {
   const [stats, setStats] = useState(null)
   const [insights, setInsights] = useState(null)
   const [loading, setLoading] = useState(true)
+  
+  // NUOVI STATE per grafici e previsioni
+  const [dailyActivities, setDailyActivities] = useState([])
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [prediction, setPrediction] = useState(null)
+
+  // Imposta date predefinite (ultimi 30 giorni)
+  useEffect(() => {
+    const end = new Date()
+    const start = new Date()
+    start.setDate(start.getDate() - 30)
+    
+    setStartDate(start.toISOString().split('T')[0])
+    setEndDate(end.toISOString().split('T')[0])
+  }, [])
 
   useEffect(() => {
     loadDashboardData()
   }, [])
+
+  // Ricarica quando cambiano le date
+  useEffect(() => {
+    if (startDate && endDate && stats) {
+      loadActivityData()
+    }
+  }, [startDate, endDate])
 
   async function loadDashboardData() {
     try {
@@ -47,6 +89,9 @@ export default function TrainingDashboard() {
         setInsights(analysis)
       }
 
+      // Carica anche i dati di attività
+      await loadActivityData()
+
       setLoading(false)
     } catch (error) {
       console.error('Error loading dashboard:', error)
@@ -54,8 +99,110 @@ export default function TrainingDashboard() {
     }
   }
 
+  async function loadActivityData() {
+    try {
+      // Attività giornaliere nel range
+      const { data: rangePhotos } = await supabase
+        .from('training_photos')
+        .select('created_at, label')
+        .gte('created_at', `${startDate}T00:00:00`)
+        .lte('created_at', `${endDate}T23:59:59`)
+        .order('created_at')
+
+      // Aggrega per giorno
+      const dailyMap = new Map()
+      rangePhotos?.forEach(photo => {
+        const date = photo.created_at.split('T')[0]
+        const current = dailyMap.get(date) || { valid: 0, invalid: 0 }
+        
+        if (photo.label === 'valid') {
+          current.valid++
+        } else {
+          current.invalid++
+        }
+        
+        dailyMap.set(date, current)
+      })
+
+      const activities = Array.from(dailyMap.entries())
+        .map(([date, counts]) => ({
+          date,
+          valid: counts.valid,
+          invalid: counts.invalid,
+          total: counts.valid + counts.invalid
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date))
+
+      setDailyActivities(activities)
+
+      // Calcola previsioni
+      if (stats) {
+        calculatePredictions(stats.total, activities)
+      }
+
+    } catch (error) {
+      console.error('Errore caricamento attività:', error)
+    }
+  }
+
+  function calculatePredictions(totalPhotos, recentActivities) {
+    // Media giornaliera ultimi 7 giorni con attività
+    const last7Days = recentActivities.slice(-7)
+    const avgPerDay = last7Days.length > 0
+      ? last7Days.reduce((sum, day) => sum + day.total, 0) / last7Days.length
+      : 0
+
+    if (avgPerDay === 0) {
+      setPrediction(null)
+      return
+    }
+
+    // Scaglioni
+    const milestones = [100, 200, 300, 500, 750, 1000, 1500, 2000]
+    
+    // Trova prossimo scaglione
+    const nextMilestone = milestones.find(m => m > totalPhotos)
+    
+    if (!nextMilestone) {
+      setPrediction({ message: '🎉 Hai superato tutti gli scaglioni!' })
+      return
+    }
+
+    const photosNeeded = nextMilestone - totalPhotos
+    const daysNeeded = Math.ceil(photosNeeded / avgPerDay)
+    const estimatedDate = new Date()
+    estimatedDate.setDate(estimatedDate.getDate() + daysNeeded)
+
+    // Calcola anche gli altri scaglioni
+    const allPredictions = milestones
+      .filter(m => m > totalPhotos)
+      .slice(0, 3)
+      .map(milestone => {
+        const needed = milestone - totalPhotos
+        const days = Math.ceil(needed / avgPerDay)
+        const date = new Date()
+        date.setDate(date.getDate() + days)
+        return {
+          milestone,
+          photosNeeded: needed,
+          daysNeeded: days,
+          estimatedDate: date.toLocaleDateString('it-IT')
+        }
+      })
+
+    setPrediction({
+      avgPerDay: avgPerDay.toFixed(1),
+      current: totalPhotos,
+      nextMilestone,
+      photosNeeded,
+      daysNeeded,
+      estimatedDate: estimatedDate.toLocaleDateString('it-IT'),
+      allPredictions
+    })
+  }
+
   function analyzeAndExplain(validPhotos, invalidPhotos) {
-    // Estrai tutte le feature
+    // [CODICE ESISTENTE - invariato]
     const allFeatureKeys = new Set()
     
     validPhotos.forEach(photo => {
@@ -70,7 +217,6 @@ export default function TrainingDashboard() {
       }
     })
 
-    // Analizza ogni feature
     const featureStats = []
 
     allFeatureKeys.forEach(featureKey => {
@@ -105,7 +251,6 @@ export default function TrainingDashboard() {
 
     featureStats.sort((a, b) => b.separationScore - a.separationScore)
 
-    // Genera insights in italiano semplice
     const topFeatures = featureStats.slice(0, 10)
     const humanInsights = generateHumanInsights(topFeatures, validPhotos.length, invalidPhotos.length)
 
@@ -121,7 +266,7 @@ export default function TrainingDashboard() {
     const insights = []
 
     topFeatures.forEach((feature, idx) => {
-      if (idx >= 5) return // Solo top 5
+      if (idx >= 5) return
 
       const featureName = feature.name
       const isValidHigher = feature.difference > 0
@@ -131,7 +276,6 @@ export default function TrainingDashboard() {
       let icon = '🔍'
       let importance = 'normale'
 
-      // Determina importanza
       if (feature.separationScore > 1.5) {
         importance = 'molto importante'
         icon = '⭐'
@@ -140,7 +284,6 @@ export default function TrainingDashboard() {
         icon = '💡'
       }
 
-      // Spiega in base al tipo di feature
       if (featureName.includes('blur') || featureName.includes('sharpness')) {
         if (featureName.includes('blur') && isValidHigher) {
           explanation = `Le foto CORRETTE sono più sfocate del normale. Questo potrebbe indicare che le foto valide hanno meno dettagli netti.`
@@ -178,7 +321,6 @@ export default function TrainingDashboard() {
       } else if (featureName.includes('gradient')) {
         explanation = `Le transizioni tra colori adiacenti sono diverse. Questo misura quanto "gradualmente" cambiano i colori.`
       } else {
-        // Spiegazione generica
         if (isValidHigher) {
           explanation = `Questa caratteristica matematica è più alta nelle foto CORRETTE (${diffPercent.toFixed(0)}% in più).`
         } else {
@@ -202,7 +344,6 @@ export default function TrainingDashboard() {
   }
 
   function humanizeFeatureName(name) {
-    // Traduci nomi tecnici in italiano comprensibile
     const translations = {
       'blur': 'Sfocatura',
       'sharpness': 'Nitidezza',
@@ -279,6 +420,7 @@ export default function TrainingDashboard() {
     return groups
   }
 
+  // [RESTO DEL CODICE PhotoAccordion e funzioni helper - invariato]
   function PhotoAccordion() {
     const [allPhotos, setAllPhotos] = useState([])
     const [openPhoto, setOpenPhoto] = useState(null)
@@ -300,9 +442,7 @@ export default function TrainingDashboard() {
     }
 
     function translateFeatureName(key) {
-      // Traduzioni specifiche
       const translations = {
-        // Color features
         'color_b_mean': 'Media Blu',
         'color_g_mean': 'Media Verde',
         'color_r_mean': 'Media Rosso',
@@ -315,12 +455,8 @@ export default function TrainingDashboard() {
         'color_b_kurtosis': 'Picco Blu',
         'color_g_kurtosis': 'Picco Verde',
         'color_r_kurtosis': 'Picco Rosso',
-        
-        // Spatial features
         'spatial_brightness': 'Luminosità Zona',
         'spatial_std': 'Variazione Zona',
-        
-        // Statistical features
         'stat_mean': 'Media Generale',
         'stat_std': 'Deviazione Standard',
         'stat_variance': 'Varianza',
@@ -336,20 +472,14 @@ export default function TrainingDashboard() {
         'stat_michelson_contrast': 'Contrasto Michelson',
         'stat_percentile_25': '25° Percentile',
         'stat_percentile_75': '75° Percentile',
-        
-        // Edge features
         'edge_density_global': 'Densità Bordi Globale',
         'edge_density': 'Densità Bordi',
         'edge_orientation': 'Orientamento Bordi',
-        
-        // Gradient features
         'gradient_mean': 'Gradiente Medio',
         'gradient_std': 'Gradiente Variazione',
         'gradient_max': 'Gradiente Massimo',
         'gradient_min': 'Gradiente Minimo',
         'gradient_median': 'Gradiente Mediano',
-        
-        // Contour features
         'contour_area': 'Area Contorno',
         'contour_perimeter': 'Perimetro',
         'contour_circularity': 'Circolarità',
@@ -358,37 +488,26 @@ export default function TrainingDashboard() {
         'contour_solidity': 'Solidità',
         'contour_hu_moment': 'Momento Hu',
         'contour_count': 'Numero Contorni',
-        
-        // FFT features
         'fft_magnitude_mean': 'Frequenza Media',
         'fft_magnitude_std': 'Frequenza Variazione',
         'fft_magnitude_max': 'Frequenza Massima',
         'fft_energy': 'Energia Frequenza',
         'fft_entropy': 'Entropia Frequenza',
-        
-        // GLCM features
         'glcm_contrast': 'Contrasto Texture',
         'glcm_dissimilarity': 'Dissimilarità Texture',
         'glcm_homogeneity': 'Omogeneità Texture',
         'glcm_energy': 'Energia Texture',
         'glcm_correlation': 'Correlazione Texture',
-        
-        // LBP features
         'lbp_hist': 'Pattern Locale',
-        
-        // Gabor features
         'gabor': 'Filtro Gabor'
       }
       
-      // Check for exact matches first
       if (translations[key]) {
         return `${translations[key]} (${key})`
       }
       
-      // Pattern matching for complex keys
       for (const [pattern, translation] of Object.entries(translations)) {
         if (key.includes(pattern)) {
-          // Extract additional info (like zone numbers, bin numbers, angles)
           const parts = key.split('_')
           let extra = ''
           
@@ -427,7 +546,6 @@ export default function TrainingDashboard() {
         }
       }
       
-      // Fallback: just clean up the key name
       return key
         .replace(/_/g, ' ')
         .split(' ')
@@ -531,7 +649,6 @@ export default function TrainingDashboard() {
 
               {isOpen && (
                 <div className="border-t-2 border-gray-200 bg-gray-50 p-6">
-                  {/* Metadata */}
                   <div className="bg-white rounded-lg p-4 mb-4 border border-gray-200">
                     <h4 className="font-bold text-gray-900 mb-3">ℹ️ Informazioni</h4>
                     <div className="grid grid-cols-2 gap-3 text-sm">
@@ -554,7 +671,6 @@ export default function TrainingDashboard() {
                     </div>
                   </div>
 
-                  {/* Features by Category */}
                   <div className="space-y-4">
                     {Object.entries(categorized).map(([category, features]) => {
                       if (features.length === 0) return null
@@ -607,6 +723,52 @@ export default function TrainingDashboard() {
     )
   }
 
+  // Configurazione grafico a barre
+  const chartData = {
+    labels: dailyActivities.map(a => new Date(a.date).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' })),
+    datasets: [
+      {
+        label: 'Valide',
+        data: dailyActivities.map(a => a.valid),
+        backgroundColor: 'rgba(34, 197, 94, 0.8)',
+        borderColor: 'rgb(34, 197, 94)',
+        borderWidth: 1
+      },
+      {
+        label: 'Non Valide',
+        data: dailyActivities.map(a => a.invalid),
+        backgroundColor: 'rgba(239, 68, 68, 0.8)',
+        borderColor: 'rgb(239, 68, 68)',
+        borderWidth: 1
+      }
+    ]
+  }
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'top',
+      },
+      title: {
+        display: false
+      }
+    },
+    scales: {
+      x: {
+        stacked: true,
+      },
+      y: {
+        stacked: true,
+        beginAtZero: true,
+        ticks: {
+          stepSize: 1
+        }
+      }
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center">
@@ -624,8 +786,8 @@ export default function TrainingDashboard() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">🧠 Cosa Ha Imparato l'AI</h1>
-            <p className="text-gray-600 text-lg">Scopri quali caratteristiche distinguono le foto corrette da quelle sbagliate</p>
+            <h1 className="text-4xl font-bold text-gray-900 mb-2">🧠 Dashboard Training Completa</h1>
+            <p className="text-gray-600 text-lg">Analisi AI, Attività e Previsioni</p>
           </div>
           <button
             onClick={() => router.push('/training')}
@@ -651,11 +813,116 @@ export default function TrainingDashboard() {
           </div>
         </div>
 
+        {/* === SEZIONE NUOVA: GRAFICI E PREVISIONI === */}
+        <div className="bg-white rounded-2xl shadow-xl border-2 border-indigo-100 p-8 mb-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">📊 Attività Giornaliere</h2>
+          
+          {/* Filtri Date */}
+          <div className="flex gap-4 mb-6 flex-wrap">
+            <div>
+              <label className="block text-sm font-medium mb-1">Data Inizio</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Data Fine</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={loadActivityData}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+              >
+                Aggiorna
+              </button>
+            </div>
+          </div>
+
+          {/* Grafico */}
+          {dailyActivities.length > 0 ? (
+            <div style={{ height: '300px' }}>
+              <Bar data={chartData} options={chartOptions} />
+            </div>
+          ) : (
+            <div className="text-center py-12 text-gray-500">
+              Nessuna attività nel periodo selezionato
+            </div>
+          )}
+        </div>
+
+        {/* Previsioni Scaglioni */}
+        {prediction && prediction.allPredictions && (
+          <div className="bg-white rounded-2xl shadow-xl border-2 border-purple-100 p-8 mb-8">
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">🎯 Previsioni Scaglioni</h2>
+            
+            <div className="bg-blue-50 rounded-xl p-4 mb-6">
+              <div className="text-sm text-blue-900 mb-2">
+                📈 Media giornaliera (ultimi 7 giorni): <strong>{prediction.avgPerDay} foto/giorno</strong>
+              </div>
+              <div className="text-sm text-blue-900">
+                📍 Foto attuali: <strong>{prediction.current}</strong>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {prediction.allPredictions.map((pred, idx) => (
+                <div 
+                  key={pred.milestone}
+                  className={`rounded-xl p-6 ${
+                    idx === 0 
+                      ? 'bg-blue-50 border-2 border-blue-400' 
+                      : 'bg-gray-50 border border-gray-300'
+                  }`}
+                >
+                  <div className="flex justify-between items-center mb-2">
+                    <div>
+                      <span className="text-xl font-bold">
+                        {idx === 0 && '🎯 '}Scaglione {pred.milestone} foto
+                      </span>
+                      {idx === 0 && <span className="ml-2 text-sm text-gray-600">(prossimo)</span>}
+                    </div>
+                    <div className="text-right">
+                      <div className={`text-2xl font-bold ${idx === 0 ? 'text-blue-600' : 'text-gray-600'}`}>
+                        {pred.daysNeeded} giorni
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        ~{pred.estimatedDate}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    Mancano ancora <strong>{pred.photosNeeded} foto</strong>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!prediction && stats?.total > 0 && (
+          <div className="bg-white rounded-2xl shadow-xl border-2 border-gray-200 p-8 text-center mb-8">
+            <div className="text-4xl mb-4">📊</div>
+            <p className="text-gray-600">
+              Carica più foto per vedere le previsioni sugli scaglioni!
+            </p>
+          </div>
+        )}
+        {/* === FINE SEZIONE NUOVA === */}
+
         {!insights && (
           <div className="bg-yellow-50 border-2 border-yellow-200 rounded-2xl p-8 text-center shadow-lg">
             <div className="text-5xl mb-4">⚠️</div>
             <p className="text-yellow-800 text-lg font-medium">
-              Carica almeno 1 foto corretta e 1 foto sbagliata per vedere l'analisi
+              Carica almeno 1 foto corretta e 1 foto sbagliata per vedere l'analisi AI
             </p>
           </div>
         )}
@@ -665,7 +932,7 @@ export default function TrainingDashboard() {
             {/* Main Insights */}
             <div className="bg-white rounded-2xl shadow-xl border-2 border-indigo-100 p-8 mb-8">
               <h2 className="text-2xl font-bold text-gray-900 mb-6">
-                💡 Scoperte Principali
+                💡 Scoperte Principali dell'AI
               </h2>
               
               <div className="space-y-6">
