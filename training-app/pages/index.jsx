@@ -91,18 +91,32 @@ export default function TrainingApp() {
 
   const loadStats = async () => {
     try {
-      const response = await fetch('/api/training-stats')
-      if (!response.ok) throw new Error('Failed to fetch stats')
-      const data = await response.json()
-      
+      // Query diretta al database
+      const { data: photos, error } = await supabase
+        .from('training_photos')
+        .select('label')
+
+      if (error) throw error
+
+      const valid = photos.filter(p => p.label === 'valid').length
+      const invalid = photos.filter(p => p.label === 'invalid').length
+      const total = photos.length
+
       setStats({
-        valid: data.valid || 0,
-        invalid: data.invalid || 0,
-        total: data.total || 0,
-        canUpload: data.canUpload !== false
+        valid,
+        invalid,
+        total,
+        canUpload: true
       })
     } catch (error) {
       console.error('Error loading stats:', error)
+      // Fallback: mostra 0 senza errore
+      setStats({
+        valid: 0,
+        invalid: 0,
+        total: 0,
+        canUpload: true
+      })
     }
   }
 
@@ -123,7 +137,7 @@ export default function TrainingApp() {
       showMessage('info', '📦 Compressione...')
       const compressedBlob = await compressForTraining(blob)
       
-      // Step 2: Cloud Run fa TUTTO (40-100%)
+      // Step 2: Cloud Run fa TUTTO (upload + features + DB)
       setUploadProgress(40)
       showMessage('info', '☁️ Upload e estrazione features...')
       
@@ -145,6 +159,7 @@ export default function TrainingApp() {
       
       const data = await response.json()
       
+      // Step 3: Refresh stats
       setUploadProgress(100)
       await loadStats()
       
@@ -211,8 +226,8 @@ export default function TrainingApp() {
             </h1>
             
             <Link href="/dashboard" className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">
-  📊 Dashboard
-</Link>
+              📊 Dashboard
+            </Link>
           </div>
         </div>
       </div>
