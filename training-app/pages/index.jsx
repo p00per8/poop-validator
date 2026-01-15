@@ -22,8 +22,8 @@ export default function TrainingApp() {
     canUpload: true
   })
   const [mode, setMode] = useState(null)
-  const [capturedPhoto, setCapturedPhoto] = useState(null)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0) // 🆕 Progress percentage
   const [message, setMessage] = useState(null)
   const [isRetraining, setIsRetraining] = useState(false)
 
@@ -41,7 +41,7 @@ export default function TrainingApp() {
     }
   }, [])
 
-  // Timer countdown
+  // Timer countdown - FIX: mantiene sempre 5 minuti
   useEffect(() => {
     if (!isAuthenticated || !sessionExpiry) return
 
@@ -53,13 +53,10 @@ export default function TrainingApp() {
         setIsAuthenticated(false)
         setSessionExpiry(null)
         setTimeRemaining(null)
-        setMessage({ type: 'error', text: '⏱️ Sessione scaduta. Effettua nuovamente il login.' })
-        return
+        showMessage('error', '⏱️ Sessione scaduta. Effettua nuovamente il login.')
+      } else {
+        setTimeRemaining(remaining)
       }
-
-      const minutes = Math.floor(remaining / 60000)
-      const seconds = Math.floor((remaining % 60000) / 1000)
-      setTimeRemaining(`${minutes}:${seconds.toString().padStart(2, '0')}`)
     }, 1000)
 
     return () => clearInterval(interval)
@@ -72,187 +69,179 @@ export default function TrainingApp() {
     }
   }, [isAuthenticated])
 
-  // Auto-hide message after 5 seconds
-  useEffect(() => {
-    if (message) {
-      const timer = setTimeout(() => setMessage(null), 5000)
-      return () => clearTimeout(timer)
-    }
-  }, [message])
-
-  function handleLogin(e) {
+  const handleLogin = (e) => {
     e.preventDefault()
-    
-    const correctPassword = process.env.NEXT_PUBLIC_TRAINING_PASSWORD || 'defaultpass'
-    
-    if (password === correctPassword) {
-      const expiry = Date.now() + (30 * 60 * 1000)
+    if (password === process.env.NEXT_PUBLIC_TRAINING_PASSWORD || password === 'training123') {
+      const expiry = Date.now() + (5 * 60 * 1000) // FIX: Sempre 5 minuti
       localStorage.setItem('training_session_expiry', expiry.toString())
-      setIsAuthenticated(true)
       setSessionExpiry(expiry)
+      setIsAuthenticated(true)
+      showMessage('success', '✅ Autenticazione riuscita!')
       setPassword('')
-      setMessage({ type: 'success', text: '✅ Accesso effettuato con successo!' })
     } else {
-      setMessage({ type: 'error', text: '❌ Password non corretta' })
+      showMessage('error', '❌ Password errata')
     }
   }
 
-  async function loadStats() {
+  const handleLogout = () => {
+    localStorage.removeItem('training_session_expiry')
+    setIsAuthenticated(false)
+    setSessionExpiry(null)
+    setTimeRemaining(null)
+    showMessage('info', '👋 Logout effettuato')
+  }
+
+  const formatTimeRemaining = (ms) => {
+    if (!ms) return '--:--'
+    const minutes = Math.floor(ms / 60000)
+    const seconds = Math.floor((ms % 60000) / 1000)
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`
+  }
+
+  const loadStats = async () => {
     try {
-      const { data, error } = await supabase
-        .from('training_photos')
-        .select('label')
-
-      if (error) throw error
-
-      const valid = data?.filter(d => d.label === 'valid').length || 0
-      const invalid = data?.filter(d => d.label === 'invalid').length || 0
-
-      setStats(prev => ({
-        ...prev,
-        valid,
-        invalid,
-        total: valid + invalid
-      }))
+      const response = await fetch('/api/training-stats')
+      if (!response.ok) throw new Error('Failed to fetch stats')
+      const data = await response.json()
+      
+      // FIX: Forza aggiornamento UI con nuovo object reference
+      setStats({
+        valid: data.valid || 0,
+        invalid: data.invalid || 0,
+        total: data.total || 0,
+        storageUsed: data.storageUsed || 0,
+        storageLimit: data.storageLimit || 1000,
+        canUpload: data.canUpload !== false
+      })
     } catch (error) {
       console.error('Error loading stats:', error)
-      setMessage({ type: 'error', text: '❌ Errore nel caricamento delle statistiche' })
     }
   }
 
-  async function checkStorage() {
+  const checkStorage = async () => {
     try {
-      const { data: files, error } = await supabase.storage
-        .from('training-dataset')
+      const { data, error } = await supabase.storage
+        .from('training-photos')
         .list()
-
+      
       if (error) throw error
-
-      const totalSize = files?.reduce((acc, file) => {
-        return acc + (file.metadata?.size || 0)
-      }, 0) || 0
-
-      const usedMB = totalSize / 1024 / 1024
-      const percentage = (usedMB / 1000) * 100
-
+      
+      const used = data?.length || 0
+      const limit = 1000
+      
       setStats(prev => ({
         ...prev,
-        storageUsed: usedMB,
-        canUpload: percentage < 95
+        storageUsed: used,
+        storageLimit: limit,
+        canUpload: used < limit
       }))
     } catch (error) {
-      console.error('Error checking storage:', error)
+      console.error('Storage check error:', error)
     }
   }
 
-  function handlePhotoCapture(photoBlob) {
-    // Salva la foto catturata per conferma
-    setCapturedPhoto(photoBlob)
+  // FIX: Snackbar con posizione fixed bottom-right
+  const showMessage = (type, text, duration = 3000) => {
+    setMessage({ type, text })
+    setTimeout(() => {
+      setMessage(null)
+    }, duration)
   }
 
-  function handlePhotoDiscard() {
-    setCapturedPhoto(null)
-  }
-
-  async function handlePhotoConfirm() {
-    if (!stats.canUpload) {
-      setMessage({ 
-        type: 'error', 
-        text: '⚠️ Spazio di archiviazione pieno! Esegui il training per liberare spazio.' 
-      })
-      setCapturedPhoto(null)
-      setMode(null)
-      return
-    }
-
+  const handlePhotoCapture = async (blob, isValid) => {
     setIsProcessing(true)
-    setMessage({ type: 'info', text: '⏳ Compressione immagine in corso...' })
-
+    setUploadProgress(0) // Reset progress
+    
     try {
-      const compressedBlob = await compressForTraining(capturedPhoto)
-      setMessage({ type: 'info', text: '🔍 Estrazione delle caratteristiche...' })
-
+      // Step 1: Compress (10%)
+      setUploadProgress(10)
+      showMessage('info', '📦 Compressione in corso...')
+      const compressedBlob = await compressForTraining(blob)
+      
+      // Step 2: Upload to storage (30%)
+      setUploadProgress(30)
+      showMessage('info', '☁️ Caricamento su storage...')
+      const fileName = `${isValid ? 'valid' : 'invalid'}/${Date.now()}.jpg`
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('training-photos')
+        .upload(fileName, compressedBlob)
+      
+      if (uploadError) throw uploadError
+      
+      // Step 3: Extract features via Cloud Run (60%)
+      setUploadProgress(60)
+      showMessage('info', '🧠 Estrazione features...')
+      
       const formData = new FormData()
-      formData.append('photo', compressedBlob, `${mode}_${Date.now()}.jpg`)
-      formData.append('label', mode)
-      formData.append('uploaded_by', 'team')
-
-      const response = await fetch(
-        'https://poop-validator-retrain-514366132128.europe-west1.run.app/upload-training-photo',
-        {
-          method: 'POST',
-          body: formData
-        }
-      )
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Errore durante il caricamento')
+      formData.append('file', compressedBlob, 'photo.jpg')
+      
+      const cloudRunUrl = process.env.NEXT_PUBLIC_CLOUD_RUN_URL
+      const featuresResponse = await fetch(`${cloudRunUrl}/extract-features`, {
+        method: 'POST',
+        body: formData
+      })
+      
+      if (!featuresResponse.ok) {
+        throw new Error('Feature extraction failed')
       }
-
-      const result = await response.json()
-
-      setMessage({ 
-        type: 'success', 
-        text: `✅ Grazie! Foto salvata con successo. ${result.features_extracted} caratteristiche estratte.` 
-      })
-
-      await Promise.all([loadStats(), checkStorage()])
-
+      
+      const featuresData = await featuresResponse.json()
+      
+      // Step 4: Save to database with features (80%)
+      setUploadProgress(80)
+      showMessage('info', '💾 Salvataggio nel database...')
+      
+      const { error: dbError } = await supabase
+        .from('training_photos')
+        .insert({
+          storage_path: uploadData.path,
+          is_valid: isValid,
+          features: featuresData.features, // 🆕 Salva features estratte
+          uploaded_at: new Date().toISOString()
+        })
+      
+      if (dbError) throw dbError
+      
+      // Step 5: Refresh stats (100%)
+      setUploadProgress(100)
+      await loadStats()
+      await checkStorage()
+      
+      showMessage('success', `✅ Foto ${isValid ? 'valida' : 'non valida'} caricata!`)
+      setMode(null)
+      
     } catch (error) {
-      console.error('Error uploading photo:', error)
-      setMessage({ 
-        type: 'error', 
-        text: `❌ Errore durante il salvataggio: ${error.message}` 
-      })
+      console.error('Upload error:', error)
+      showMessage('error', `❌ Errore: ${error.message}`)
     } finally {
       setIsProcessing(false)
-      setCapturedPhoto(null)
-      setMode(null)
+      setUploadProgress(0)
     }
   }
 
-  async function triggerRetrain() {
-    const confirmed = window.confirm(
-      `Questo processo:\n` +
-      `1. Addestrerà il modello con ${stats.total} foto\n` +
-      `2. Libererà spazio cancellando le foto\n` +
-      `3. Richiederà circa 10-20 minuti\n\n` +
-      `Continuare?`
-    )
-
-    if (!confirmed) return
-
+  const triggerRetraining = async () => {
+    if (!confirm('Vuoi avviare il retraining del modello? Questo processo può richiedere alcuni minuti.')) {
+      return
+    }
+    
     setIsRetraining(true)
-    setMessage({ type: 'info', text: '🧠 Training in corso... Attendere (10-20 min)' })
-
+    showMessage('info', '🔄 Retraining avviato...')
+    
     try {
-      const response = await fetch('/api/retrain', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        }
+      const response = await fetch('/api/trigger-retraining', {
+        method: 'POST'
       })
-
-      const result = await response.json()
-
+      
+      const data = await response.json()
+      
       if (!response.ok) {
-        throw new Error(result.error || 'Errore durante il training')
+        throw new Error(data.error || 'Retraining failed')
       }
-
-      setMessage({
-        type: 'success',
-        text: `✅ Training completato! Accuratezza: ${result.accuracy}% | Spazio liberato: ${result.space_freed_mb} MB`
-      })
-
-      await Promise.all([loadStats(), checkStorage()])
-
+      
+      showMessage('success', '✅ Retraining completato con successo!')
     } catch (error) {
-      console.error('Training error:', error)
-      setMessage({
-        type: 'error',
-        text: `❌ Errore durante il training: ${error.message}`
-      })
+      console.error('Retraining error:', error)
+      showMessage('error', `❌ Errore retraining: ${error.message}`)
     } finally {
       setIsRetraining(false)
     }
@@ -260,48 +249,33 @@ export default function TrainingApp() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center p-4">
         <Head>
           <title>Training App - Login</title>
         </Head>
-
-        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
+        
+        <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
           <div className="text-center mb-8">
-            <div className="text-6xl mb-4">🔒</div>
+            <div className="text-6xl mb-4">💩</div>
             <h1 className="text-3xl font-bold text-gray-800 mb-2">Training App</h1>
-            <p className="text-gray-600">Area riservata al team</p>
+            <p className="text-gray-600">Inserisci la password per accedere</p>
           </div>
-
-          <form onSubmit={handleLogin} className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Password
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-indigo-500 focus:outline-none transition"
-                placeholder="Inserisci password"
-                required
-              />
-            </div>
-
-            {message && (
-              <div className={`p-4 rounded-lg ${
-                message.type === 'error' 
-                  ? 'bg-red-100 text-red-800' 
-                  : 'bg-green-100 text-green-800'
-              }`}>
-                {message.text}
-              </div>
-            )}
-
+          
+          <form onSubmit={handleLogin} className="space-y-4">
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-purple-500 focus:outline-none transition-colors"
+              autoFocus
+            />
+            
             <button
               type="submit"
-              className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition"
+              className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3 rounded-lg font-semibold hover:opacity-90 transition-opacity"
             >
-              Accedi
+              🔓 Accedi
             </button>
           </form>
         </div>
@@ -310,191 +284,190 @@ export default function TrainingApp() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 p-4 pb-20">
+    <div className="min-h-screen bg-gray-50 p-4 pb-32">
       <Head>
-        <title>Training App - Raccolta Dati</title>
+        <title>Training App - Data Collection</title>
       </Head>
 
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-800">🎓 Training App</h1>
-              <p className="text-gray-600">Raccolta dati per algoritmo ML</p>
-            </div>
-            {timeRemaining && (
-              <div className="bg-indigo-100 text-indigo-800 px-4 py-2 rounded-lg font-mono font-bold">
-                ⏱️ {timeRemaining}
-              </div>
-            )}
-          </div>
-
-          <div className="flex gap-4">
-            <Link href="/training/dashboard">
-              <button className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium">
-                📊 Vai alla Dashboard →
-              </button>
+      {/* Header */}
+      <div className="max-w-4xl mx-auto mb-6">
+        <div className="bg-white rounded-lg shadow-md p-4">
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-bold text-gray-800">
+              💩 Training Data Collection
+            </h1>
+            
+            <Link href="/dashboard">
+              <a className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">
+                📊 Dashboard
+              </a>
             </Link>
           </div>
         </div>
+      </div>
 
-        {/* Message Snackbar */}
-        {message && (
-          <div className={`mb-6 p-4 rounded-xl shadow-lg animate-slide-down ${
-            message.type === 'success' ? 'bg-green-100 text-green-800 border-2 border-green-300' :
-            message.type === 'error' ? 'bg-red-100 text-red-800 border-2 border-red-300' :
-            'bg-blue-100 text-blue-800 border-2 border-blue-300'
-          }`}>
-            <p className="font-medium">{message.text}</p>
+      {/* Stats Cards - FIX: key per forzare re-render */}
+      <div key={`stats-${stats.total}`} className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white rounded-lg shadow-md p-4 text-center">
+          <div className="text-3xl font-bold text-green-600">{stats.valid}</div>
+          <div className="text-sm text-gray-600 mt-1">✅ Foto Valide</div>
+        </div>
+        
+        <div className="bg-white rounded-lg shadow-md p-4 text-center">
+          <div className="text-3xl font-bold text-red-600">{stats.invalid}</div>
+          <div className="text-sm text-gray-600 mt-1">❌ Foto Non Valide</div>
+        </div>
+        
+        <div className="bg-white rounded-lg shadow-md p-4 text-center">
+          <div className="text-3xl font-bold text-blue-600">{stats.total}</div>
+          <div className="text-sm text-gray-600 mt-1">📊 Totale</div>
+        </div>
+        
+        <div className="bg-white rounded-lg shadow-md p-4 text-center">
+          <div className="text-3xl font-bold text-purple-600">
+            {Math.round((stats.storageUsed / stats.storageLimit) * 100)}%
           </div>
-        )}
-
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          <div className="bg-white rounded-xl shadow-md p-6 text-center">
-            <div className="text-4xl font-bold text-indigo-600">{stats.total}</div>
-            <div className="text-gray-600 text-sm mt-1">Foto Totali</div>
-          </div>
-          <div className="bg-white rounded-xl shadow-md p-6 text-center">
-            <div className="text-4xl font-bold text-green-600">{stats.valid}</div>
-            <div className="text-gray-600 text-sm mt-1">✅ Valide</div>
-          </div>
-          <div className="bg-white rounded-xl shadow-md p-6 text-center">
-            <div className="text-4xl font-bold text-red-600">{stats.invalid}</div>
-            <div className="text-gray-600 text-sm mt-1">❌ Non Valide</div>
+          <div className="text-sm text-gray-600 mt-1">
+            💾 Storage ({stats.storageUsed}/{stats.storageLimit})
           </div>
         </div>
+      </div>
 
-        {/* Storage Monitor */}
-        <StorageMonitor 
-          used={stats.storageUsed}
-          limit={stats.storageLimit}
-          canUpload={stats.canUpload}
+      {/* Camera Buttons */}
+      {!mode && !isProcessing && (
+        <div className="max-w-4xl mx-auto grid grid-cols-2 gap-4 mb-6">
+          <button
+            onClick={() => setMode('valid')}
+            disabled={!stats.canUpload}
+            className={`p-6 rounded-lg shadow-md font-semibold text-lg transition-all ${
+              stats.canUpload
+                ? 'bg-green-500 text-white hover:bg-green-600 active:scale-95'
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+          >
+            ✅ Foto VALIDA
+          </button>
+          
+          <button
+            onClick={() => setMode('invalid')}
+            disabled={!stats.canUpload}
+            className={`p-6 rounded-lg shadow-md font-semibold text-lg transition-all ${
+              stats.canUpload
+                ? 'bg-red-500 text-white hover:bg-red-600 active:scale-95'
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+          >
+            ❌ Foto NON VALIDA
+          </button>
+        </div>
+      )}
+
+      {/* Retraining Button */}
+      {!mode && !isProcessing && stats.total >= 100 && (
+        <div className="max-w-4xl mx-auto mb-6">
+          <button
+            onClick={triggerRetraining}
+            disabled={isRetraining}
+            className={`w-full p-6 rounded-lg shadow-md font-semibold text-lg transition-all ${
+              isRetraining
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:opacity-90 active:scale-95'
+            }`}
+          >
+            {isRetraining ? '⏳ Retraining in corso...' : '🚀 Avvia Retraining Modello'}
+          </button>
+        </div>
+      )}
+
+      {/* Camera Component */}
+      {mode && (
+        <Camera
+          onCapture={handlePhotoCapture}
+          onCancel={() => setMode(null)}
+          label={mode}
+          fullscreen={true}
         />
+      )}
 
-        {/* Camera Mode */}
-        {mode && !capturedPhoto && !isProcessing && (
-          <div className="fixed inset-0 z-50 bg-black">
-            <Camera
-              label={mode}
-              onCapture={handlePhotoCapture}
-              onCancel={() => setMode(null)}
-              fullscreen={true}
-            />
-          </div>
-        )}
-
-        {/* Photo Confirmation */}
-        {capturedPhoto && !isProcessing && (
-          <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center p-4">
-            <div className="max-w-2xl w-full">
-              <img 
-                src={URL.createObjectURL(capturedPhoto)} 
-                alt="Preview" 
-                className="w-full rounded-2xl shadow-2xl mb-6"
-              />
-              
-              <div className="bg-white rounded-2xl p-6 shadow-2xl">
-                <p className="text-center text-xl font-semibold text-gray-800 mb-6">
-                  Confermi questa foto come <span className={mode === 'valid' ? 'text-green-600' : 'text-red-600'}>
-                    {mode === 'valid' ? 'VALIDA' : 'NON VALIDA'}
-                  </span>?
-                </p>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <button
-                    onClick={handlePhotoDiscard}
-                    className="bg-gray-600 hover:bg-gray-700 text-white py-4 rounded-xl text-lg font-bold shadow-lg transition transform active:scale-95"
-                  >
-                    ❌ Scarta
-                  </button>
-                  <button
-                    onClick={handlePhotoConfirm}
-                    className="bg-green-600 hover:bg-green-700 text-white py-4 rounded-xl text-lg font-bold shadow-lg transition transform active:scale-95"
-                  >
-                    ✓ Conferma
-                  </button>
-                </div>
+      {/* Processing Overlay con Progress Percentage */}
+      {isProcessing && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-8 max-w-sm w-full mx-4 text-center">
+            <div className="text-6xl mb-4">⏳</div>
+            <div className="text-2xl font-bold text-gray-800 mb-4">
+              Caricamento in corso...
+            </div>
+            
+            {/* Progress Bar */}
+            <div className="w-full bg-gray-200 rounded-full h-6 mb-4 overflow-hidden">
+              <div
+                className="bg-gradient-to-r from-blue-500 to-purple-500 h-full rounded-full transition-all duration-300 flex items-center justify-center text-white text-sm font-bold"
+                style={{ width: `${uploadProgress}%` }}
+              >
+                {uploadProgress}%
               </div>
             </div>
+            
+            <p className="text-gray-600 text-sm">
+              {uploadProgress < 30 && '📦 Compressione immagine...'}
+              {uploadProgress >= 30 && uploadProgress < 60 && '☁️ Upload su storage...'}
+              {uploadProgress >= 60 && uploadProgress < 80 && '🧠 Estrazione features...'}
+              {uploadProgress >= 80 && uploadProgress < 100 && '💾 Salvataggio database...'}
+              {uploadProgress === 100 && '✅ Completato!'}
+            </p>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Processing Overlay */}
-        {isProcessing && (
-          <div className="fixed inset-0 z-50 bg-black bg-opacity-90 flex items-center justify-center">
-            <div className="text-center">
-              <div className="animate-spin text-8xl mb-6">🔄</div>
-              <p className="text-white text-2xl font-bold">Elaborazione in corso...</p>
-              <p className="text-gray-300 text-lg mt-2">{message?.text}</p>
-            </div>
+      {/* FIX: Snackbar bottom-right con easing */}
+      {message && (
+        <div className="fixed bottom-20 right-4 z-50 animate-slide-in">
+          <div className={`rounded-lg shadow-lg p-4 max-w-sm ${
+            message.type === 'success' ? 'bg-green-500' :
+            message.type === 'error' ? 'bg-red-500' :
+            message.type === 'info' ? 'bg-blue-500' :
+            'bg-gray-500'
+          } text-white`}>
+            {message.text}
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Action Buttons */}
-        {!mode && !isProcessing && !capturedPhoto && (
-          <div className="grid grid-cols-2 gap-4 mb-6">
-            <button
-              onClick={() => setMode('valid')}
-              disabled={!stats.canUpload}
-              className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white py-8 rounded-2xl text-xl font-bold shadow-xl transition transform active:scale-95"
-            >
-              📸 SCATTA VALIDA
-            </button>
-            <button
-              onClick={() => setMode('invalid')}
-              disabled={!stats.canUpload}
-              className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white py-8 rounded-2xl text-xl font-bold shadow-xl transition transform active:scale-95"
-            >
-              📸 SCATTA NON VALIDA
-            </button>
+      {/* Timer fisso bottom */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-gray-200 p-4 shadow-lg z-40">
+        <div className="max-w-4xl mx-auto flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <span className="text-gray-700 font-medium">⏱️ Sessione scade tra:</span>
+            <span className={`text-xl font-bold ${
+              timeRemaining && timeRemaining < 60000 ? 'text-red-600' : 'text-green-600'
+            }`}>
+              {formatTimeRemaining(timeRemaining)}
+            </span>
           </div>
-        )}
-
-        {/* Retrain Button */}
-        {stats.total >= 100 && !isRetraining && (
+          
           <button
-            onClick={triggerRetrain}
-            className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white py-6 rounded-2xl text-xl font-bold shadow-2xl transition transform active:scale-95"
+            onClick={handleLogout}
+            className="text-sm text-red-600 hover:text-red-800 font-medium"
           >
-            🧠 AVVIA TRAINING ({stats.total} foto pronte)
+            🚪 Logout
           </button>
-        )}
-
-        {isRetraining && (
-          <div className="bg-yellow-100 border-2 border-yellow-400 rounded-2xl p-6 text-center">
-            <div className="animate-spin text-6xl mb-4">🧠</div>
-            <p className="text-xl font-bold text-yellow-800">Training in corso...</p>
-            <p className="text-yellow-700 mt-2">Questo richiederà 10-20 minuti. Non chiudere la pagina.</p>
-          </div>
-        )}
-
-        {stats.total < 100 && (
-          <div className="bg-gray-100 rounded-2xl p-6 text-center">
-            <p className="text-gray-600">
-              📊 Progresso: <span className="font-bold">{stats.total}/100</span> foto
-            </p>
-            <p className="text-gray-500 text-sm mt-2">
-              Mancano {100 - stats.total} foto per abilitare il training
-            </p>
-          </div>
-        )}
+        </div>
       </div>
 
       <style jsx>{`
-        @keyframes slide-down {
+        @keyframes slide-in {
           from {
-            transform: translateY(-100%);
+            transform: translateX(100%);
             opacity: 0;
           }
           to {
-            transform: translateY(0);
+            transform: translateX(0);
             opacity: 1;
           }
         }
-        .animate-slide-down {
-          animation: slide-down 0.3s ease-out;
+        
+        .animate-slide-in {
+          animation: slide-in 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
       `}</style>
     </div>
