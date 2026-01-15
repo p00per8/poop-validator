@@ -1,14 +1,11 @@
 import { useState, useEffect } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
-import { useRouter } from 'next/router'
 import Camera from '../../shared/components/Camera'
-import StorageMonitor from '../components/StorageMonitor'
 import { supabase } from '../../shared/lib/supabase'
 import { compressForTraining } from '../../shared/lib/imageCompression'
 
 export default function TrainingApp() {
-  const router = useRouter()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [password, setPassword] = useState('')
   const [sessionExpiry, setSessionExpiry] = useState(null)
@@ -17,17 +14,13 @@ export default function TrainingApp() {
     valid: 0,
     invalid: 0,
     total: 0,
-    storageUsed: 0,
-    storageLimit: 1000,
     canUpload: true
   })
   const [mode, setMode] = useState(null)
   const [isProcessing, setIsProcessing] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState(0) // 🆕 Progress percentage
+  const [uploadProgress, setUploadProgress] = useState(0)
   const [message, setMessage] = useState(null)
-  const [isRetraining, setIsRetraining] = useState(false)
 
-  // Check session on mount
   useEffect(() => {
     const savedExpiry = localStorage.getItem('training_session_expiry')
     if (savedExpiry) {
@@ -41,7 +34,6 @@ export default function TrainingApp() {
     }
   }, [])
 
-  // Timer countdown - FIX: mantiene sempre 5 minuti
   useEffect(() => {
     if (!isAuthenticated || !sessionExpiry) return
 
@@ -53,7 +45,7 @@ export default function TrainingApp() {
         setIsAuthenticated(false)
         setSessionExpiry(null)
         setTimeRemaining(null)
-        showMessage('error', '⏱️ Sessione scaduta. Effettua nuovamente il login.')
+        showMessage('error', '⏱️ Sessione scaduta')
       } else {
         setTimeRemaining(remaining)
       }
@@ -65,14 +57,13 @@ export default function TrainingApp() {
   useEffect(() => {
     if (isAuthenticated) {
       loadStats()
-      checkStorage()
     }
   }, [isAuthenticated])
 
   const handleLogin = (e) => {
     e.preventDefault()
     if (password === process.env.NEXT_PUBLIC_TRAINING_PASSWORD || password === 'training123') {
-      const expiry = Date.now() + (5 * 60 * 1000) // FIX: Sempre 5 minuti
+      const expiry = Date.now() + (5 * 60 * 1000)
       localStorage.setItem('training_session_expiry', expiry.toString())
       setSessionExpiry(expiry)
       setIsAuthenticated(true)
@@ -104,13 +95,10 @@ export default function TrainingApp() {
       if (!response.ok) throw new Error('Failed to fetch stats')
       const data = await response.json()
       
-      // FIX: Forza aggiornamento UI con nuovo object reference
       setStats({
         valid: data.valid || 0,
         invalid: data.invalid || 0,
         total: data.total || 0,
-        storageUsed: data.storageUsed || 0,
-        storageLimit: data.storageLimit || 1000,
         canUpload: data.canUpload !== false
       })
     } catch (error) {
@@ -118,29 +106,6 @@ export default function TrainingApp() {
     }
   }
 
-  const checkStorage = async () => {
-    try {
-      const { data, error } = await supabase.storage
-        .from('training-photos')
-        .list()
-      
-      if (error) throw error
-      
-      const used = data?.length || 0
-      const limit = 1000
-      
-      setStats(prev => ({
-        ...prev,
-        storageUsed: used,
-        storageLimit: limit,
-        canUpload: used < limit
-      }))
-    } catch (error) {
-      console.error('Storage check error:', error)
-    }
-  }
-
-  // FIX: Snackbar con posizione fixed bottom-right
   const showMessage = (type, text, duration = 3000) => {
     setMessage({ type, text })
     setTimeout(() => {
@@ -150,64 +115,40 @@ export default function TrainingApp() {
 
   const handlePhotoCapture = async (blob, isValid) => {
     setIsProcessing(true)
-    setUploadProgress(0) // Reset progress
+    setUploadProgress(0)
     
     try {
-      // Step 1: Compress (10%)
-      setUploadProgress(10)
-      showMessage('info', '📦 Compressione in corso...')
+      // Step 1: Compress (20%)
+      setUploadProgress(20)
+      showMessage('info', '📦 Compressione...')
       const compressedBlob = await compressForTraining(blob)
       
-      // Step 2: Upload to storage (30%)
-      setUploadProgress(30)
-      showMessage('info', '☁️ Caricamento su storage...')
-      const fileName = `${isValid ? 'valid' : 'invalid'}/${Date.now()}.jpg`
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('training-photos')
-        .upload(fileName, compressedBlob)
-      
-      if (uploadError) throw uploadError
-      
-      // Step 3: Extract features via Cloud Run (60%)
-      setUploadProgress(60)
-      showMessage('info', '🧠 Estrazione features...')
+      // Step 2: Cloud Run fa TUTTO (40-100%)
+      setUploadProgress(40)
+      showMessage('info', '☁️ Upload e estrazione features...')
       
       const formData = new FormData()
-      formData.append('file', compressedBlob, 'photo.jpg')
+      formData.append('photo', compressedBlob, 'photo.jpg')
+      formData.append('label', isValid ? 'valid' : 'invalid')
+      formData.append('uploaded_by', 'training-app')
       
       const cloudRunUrl = process.env.NEXT_PUBLIC_CLOUD_RUN_URL
-      const featuresResponse = await fetch(`${cloudRunUrl}/extract-features`, {
+      const response = await fetch(`${cloudRunUrl}/upload-training-photo`, {
         method: 'POST',
         body: formData
       })
       
-      if (!featuresResponse.ok) {
-        throw new Error('Feature extraction failed')
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Upload failed')
       }
       
-      const featuresData = await featuresResponse.json()
+      const data = await response.json()
       
-      // Step 4: Save to database with features (80%)
-      setUploadProgress(80)
-      showMessage('info', '💾 Salvataggio nel database...')
-      
-      const { error: dbError } = await supabase
-        .from('training_photos')
-        .insert({
-          storage_path: uploadData.path,
-          is_valid: isValid,
-          features: featuresData.features, // 🆕 Salva features estratte
-          uploaded_at: new Date().toISOString()
-        })
-      
-      if (dbError) throw dbError
-      
-      // Step 5: Refresh stats (100%)
       setUploadProgress(100)
       await loadStats()
-      await checkStorage()
       
-      showMessage('success', `✅ Foto ${isValid ? 'valida' : 'non valida'} caricata!`)
+      showMessage('success', `✅ Foto caricata con ${data.features_extracted} features!`)
       setMode(null)
       
     } catch (error) {
@@ -216,34 +157,6 @@ export default function TrainingApp() {
     } finally {
       setIsProcessing(false)
       setUploadProgress(0)
-    }
-  }
-
-  const triggerRetraining = async () => {
-    if (!confirm('Vuoi avviare il retraining del modello? Questo processo può richiedere alcuni minuti.')) {
-      return
-    }
-    
-    setIsRetraining(true)
-    showMessage('info', '🔄 Retraining avviato...')
-    
-    try {
-      const response = await fetch('/api/trigger-retraining', {
-        method: 'POST'
-      })
-      
-      const data = await response.json()
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Retraining failed')
-      }
-      
-      showMessage('success', '✅ Retraining completato con successo!')
-    } catch (error) {
-      console.error('Retraining error:', error)
-      showMessage('error', `❌ Errore retraining: ${error.message}`)
-    } finally {
-      setIsRetraining(false)
     }
   }
 
@@ -306,8 +219,8 @@ export default function TrainingApp() {
         </div>
       </div>
 
-      {/* Stats Cards - FIX: key per forzare re-render */}
-      <div key={`stats-${stats.total}`} className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      {/* Stats Cards */}
+      <div key={`stats-${stats.total}`} className="max-w-4xl mx-auto grid grid-cols-3 gap-4 mb-6">
         <div className="bg-white rounded-lg shadow-md p-4 text-center">
           <div className="text-3xl font-bold text-green-600">{stats.valid}</div>
           <div className="text-sm text-gray-600 mt-1">✅ Foto Valide</div>
@@ -321,15 +234,6 @@ export default function TrainingApp() {
         <div className="bg-white rounded-lg shadow-md p-4 text-center">
           <div className="text-3xl font-bold text-blue-600">{stats.total}</div>
           <div className="text-sm text-gray-600 mt-1">📊 Totale</div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow-md p-4 text-center">
-          <div className="text-3xl font-bold text-purple-600">
-            {Math.round((stats.storageUsed / stats.storageLimit) * 100)}%
-          </div>
-          <div className="text-sm text-gray-600 mt-1">
-            💾 Storage ({stats.storageUsed}/{stats.storageLimit})
-          </div>
         </div>
       </div>
 
@@ -362,23 +266,6 @@ export default function TrainingApp() {
         </div>
       )}
 
-      {/* Retraining Button */}
-      {!mode && !isProcessing && stats.total >= 100 && (
-        <div className="max-w-4xl mx-auto mb-6">
-          <button
-            onClick={triggerRetraining}
-            disabled={isRetraining}
-            className={`w-full p-6 rounded-lg shadow-md font-semibold text-lg transition-all ${
-              isRetraining
-                ? 'bg-gray-400 cursor-not-allowed'
-                : 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:opacity-90 active:scale-95'
-            }`}
-          >
-            {isRetraining ? '⏳ Retraining in corso...' : '🚀 Avvia Retraining Modello'}
-          </button>
-        </div>
-      )}
-
       {/* Camera Component */}
       {mode && (
         <Camera
@@ -389,7 +276,7 @@ export default function TrainingApp() {
         />
       )}
 
-      {/* Processing Overlay con Progress Percentage */}
+      {/* Processing Overlay */}
       {isProcessing && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-8 max-w-sm w-full mx-4 text-center">
@@ -398,7 +285,6 @@ export default function TrainingApp() {
               Caricamento in corso...
             </div>
             
-            {/* Progress Bar */}
             <div className="w-full bg-gray-200 rounded-full h-6 mb-4 overflow-hidden">
               <div
                 className="bg-gradient-to-r from-blue-500 to-purple-500 h-full rounded-full transition-all duration-300 flex items-center justify-center text-white text-sm font-bold"
@@ -409,17 +295,15 @@ export default function TrainingApp() {
             </div>
             
             <p className="text-gray-600 text-sm">
-              {uploadProgress < 30 && '📦 Compressione immagine...'}
-              {uploadProgress >= 30 && uploadProgress < 60 && '☁️ Upload su storage...'}
-              {uploadProgress >= 60 && uploadProgress < 80 && '🧠 Estrazione features...'}
-              {uploadProgress >= 80 && uploadProgress < 100 && '💾 Salvataggio database...'}
+              {uploadProgress < 40 && '📦 Compressione...'}
+              {uploadProgress >= 40 && uploadProgress < 100 && '☁️ Upload e features...'}
               {uploadProgress === 100 && '✅ Completato!'}
             </p>
           </div>
         </div>
       )}
 
-      {/* FIX: Snackbar bottom-right con easing */}
+      {/* Snackbar */}
       {message && (
         <div className="fixed bottom-20 right-4 z-50 animate-slide-in">
           <div className={`rounded-lg shadow-lg p-4 max-w-sm ${
@@ -433,7 +317,7 @@ export default function TrainingApp() {
         </div>
       )}
 
-      {/* Timer fisso bottom */}
+      {/* Timer */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-gray-200 p-4 shadow-lg z-40">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center space-x-4">
