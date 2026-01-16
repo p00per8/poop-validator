@@ -61,26 +61,39 @@ export default function TrainingDashboard() {
 
   async function loadDashboardData() {
     try {
+      // Check total photos first
+      const { data: allPhotos } = await supabase
+        .from('training_photos')
+        .select('id, label')
+
       const { data: photos, error } = await supabase
         .from('training_photos')
         .select('*')
+        .not('features', 'is', null)
 
       if (error) throw error
 
       if (!photos || photos.length === 0) {
-        setStats({ total: 0, valid: 0, invalid: 0 })
+        setStats({
+          total: 0,
+          valid: 0,
+          invalid: 0,
+          missingFeatures: allPhotos?.length || 0
+        })
         setLoading(false)
         return
       }
 
       const validPhotos = photos.filter(p => p.label === 'valid')
       const invalidPhotos = photos.filter(p => p.label === 'invalid')
+      const missingFeaturesCount = (allPhotos?.length || 0) - photos.length
 
       setStats({
         total: photos.length,
         valid: validPhotos.length,
         invalid: invalidPhotos.length,
-        storage_mb: (photos.reduce((sum, p) => sum + (p.file_size || 0), 0) / 1024 / 1024).toFixed(2)
+        storage_mb: (photos.reduce((sum, p) => sum + (p.file_size || 0), 0) / 1024 / 1024).toFixed(2),
+        missingFeatures: missingFeaturesCount
       })
 
       if (validPhotos.length > 0 && invalidPhotos.length > 0) {
@@ -819,6 +832,32 @@ export default function TrainingDashboard() {
             <div className="text-4xl font-bold text-red-700">{stats?.invalid || 0}</div>
           </div>
         </div>
+
+        {/* WARNING: Missing Features */}
+        {stats?.missingFeatures > 0 && (
+          <div className="bg-orange-50 border-2 border-orange-400 rounded-2xl p-6 mb-8 shadow-lg">
+            <div className="flex items-start gap-4">
+              <div className="text-4xl">⚠️</div>
+              <div className="flex-1">
+                <h3 className="text-xl font-bold text-orange-900 mb-2">
+                  {stats.missingFeatures} foto senza features estratte
+                </h3>
+                <p className="text-orange-800 mb-3">
+                  Ci sono {stats.missingFeatures} foto nel database che non hanno features estratte.
+                  Questo può succedere se:
+                </p>
+                <ul className="list-disc list-inside text-orange-800 space-y-1 mb-4">
+                  <li>Il servizio Cloud Run non era attivo durante l'upload</li>
+                  <li>L'estrazione features è fallita per quelle foto</li>
+                  <li>Le foto sono state caricate prima dell'implementazione del sistema features</li>
+                </ul>
+                <p className="text-orange-900 font-medium">
+                  🔧 Controlla il repository Cloud Run per verificare il servizio di estrazione features
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* === SEZIONE NUOVA: GRAFICI E PREVISIONI === */}
         <div className="bg-white rounded-2xl shadow-xl border-2 border-indigo-100 p-8 mb-8">
