@@ -400,17 +400,48 @@ export default function TrainingDashboard() {
     let result = {}
     for (let key in obj) {
       const newKey = prefix ? `${prefix}.${key}` : key
-      if (typeof obj[key] === 'object' && obj[key] !== null && !Array.isArray(obj[key])) {
+
+      if (Array.isArray(obj[key])) {
+        // Handle arrays - flatten each element with index
+        obj[key].forEach((value, idx) => {
+          if (typeof value === 'number') {
+            result[`${newKey}[${idx}]`] = value
+          } else if (typeof value === 'object' && value !== null) {
+            // Nested object in array
+            Object.assign(result, flattenFeatures(value, `${newKey}[${idx}]`))
+          }
+        })
+      } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+        // Nested object - recurse
         Object.assign(result, flattenFeatures(obj[key], newKey))
       } else if (typeof obj[key] === 'number') {
+        // Direct number value
         result[newKey] = obj[key]
       }
+      // Note: strings, booleans, null are still ignored
     }
     return result
   }
 
   function getNestedValue(obj, path) {
-    return path.split('.').reduce((current, key) => current?.[key], obj)
+    // Handle paths like "color_hist[0]" or "spatial.zone[2]"
+    const keys = path.split('.')
+    let current = obj
+
+    for (let key of keys) {
+      if (!current) return null
+
+      // Check for array notation: key[index]
+      const arrayMatch = key.match(/^(.+)\[(\d+)\]$/)
+      if (arrayMatch) {
+        const [, arrayKey, index] = arrayMatch
+        current = current[arrayKey]?.[parseInt(index)]
+      } else {
+        current = current[key]
+      }
+    }
+
+    return current
   }
 
   function average(arr) {
