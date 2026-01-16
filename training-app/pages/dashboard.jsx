@@ -276,6 +276,7 @@ export default function TrainingDashboard() {
 
     return {
       topFeatures: topFeatures,
+      allFeatures: featureStats, // TUTTE le features, non solo top 10
       totalFeatures: featureStats.length,
       insights: humanInsights,
       byCategory: groupByCategory(featureStats)
@@ -438,6 +439,228 @@ export default function TrainingDashboard() {
       groups[cat].push(f)
     })
     return groups
+  }
+
+  // Complete Features Table Component
+  function AllFeaturesTable({ allFeatures }) {
+    const [searchTerm, setSearchTerm] = useState('')
+    const [categoryFilter, setCategoryFilter] = useState('Tutte')
+    const [sortBy, setSortBy] = useState('score') // 'score', 'name', 'difference'
+    const [showCount, setShowCount] = useState(50)
+
+    if (!allFeatures || allFeatures.length === 0) {
+      return null
+    }
+
+    // Filter and sort
+    let filtered = allFeatures.filter(f => {
+      const matchesSearch = f.name.toLowerCase().includes(searchTerm.toLowerCase())
+      const matchesCategory = categoryFilter === 'Tutte' || f.category === categoryFilter
+      return matchesSearch && matchesCategory
+    })
+
+    // Sort
+    if (sortBy === 'score') {
+      filtered.sort((a, b) => b.separationScore - a.separationScore)
+    } else if (sortBy === 'name') {
+      filtered.sort((a, b) => a.name.localeCompare(b.name))
+    } else if (sortBy === 'difference') {
+      filtered.sort((a, b) => Math.abs(b.difference) - Math.abs(a.difference))
+    }
+
+    const categories = ['Tutte', ...new Set(allFeatures.map(f => f.category))]
+    const displayed = filtered.slice(0, showCount)
+
+    return (
+      <div className="bg-white rounded-2xl shadow-xl border-2 border-gray-200 p-8 mb-8">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">📊 Tabella Completa Features</h2>
+            <p className="text-gray-600 mt-1">
+              {allFeatures.length} features totali • {filtered.length} visualizzate
+            </p>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          {/* Search */}
+          <div>
+            <label className="block text-sm font-medium mb-2">🔍 Cerca Feature</label>
+            <input
+              type="text"
+              placeholder="es. brightness, edge, color..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+
+          {/* Category Filter */}
+          <div>
+            <label className="block text-sm font-medium mb-2">📂 Categoria</label>
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+            >
+              {categories.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Sort */}
+          <div>
+            <label className="block text-sm font-medium mb-2">🔢 Ordina per</label>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+            >
+              <option value="score">Importanza (Score)</option>
+              <option value="difference">Differenza (Abs)</option>
+              <option value="name">Nome (A-Z)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Stats Summary */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <div className="bg-green-50 rounded-lg p-3 border border-green-200">
+            <div className="text-xs text-green-700">Score {'>'} 1.5</div>
+            <div className="text-2xl font-bold text-green-900">
+              {filtered.filter(f => f.separationScore > 1.5).length}
+            </div>
+          </div>
+          <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+            <div className="text-xs text-blue-700">Score 0.8-1.5</div>
+            <div className="text-2xl font-bold text-blue-900">
+              {filtered.filter(f => f.separationScore > 0.8 && f.separationScore <= 1.5).length}
+            </div>
+          </div>
+          <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-200">
+            <div className="text-xs text-yellow-700">Score 0.5-0.8</div>
+            <div className="text-2xl font-bold text-yellow-900">
+              {filtered.filter(f => f.separationScore > 0.5 && f.separationScore <= 0.8).length}
+            </div>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+            <div className="text-xs text-gray-700">Score {'<'} 0.5</div>
+            <div className="text-2xl font-bold text-gray-900">
+              {filtered.filter(f => f.separationScore <= 0.5).length}
+            </div>
+          </div>
+        </div>
+
+        {/* Table */}
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-100 border-b-2 border-gray-300">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">#</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Feature</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Categoria</th>
+                <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Valid (avg)</th>
+                <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Invalid (avg)</th>
+                <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Diff</th>
+                <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayed.map((feature, idx) => {
+                const scoreColor =
+                  feature.separationScore > 1.5 ? 'bg-green-50' :
+                  feature.separationScore > 0.8 ? 'bg-blue-50' :
+                  feature.separationScore > 0.5 ? 'bg-yellow-50' : 'bg-white'
+
+                const higherInValid = feature.difference > 0
+
+                return (
+                  <tr key={feature.name} className={`border-b border-gray-200 hover:bg-gray-50 transition ${scoreColor}`}>
+                    <td className="px-4 py-3 text-sm text-gray-500">{idx + 1}</td>
+                    <td className="px-4 py-3">
+                      <div className="font-mono text-xs text-gray-900">{feature.name}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="inline-block px-2 py-1 rounded text-xs font-medium bg-gray-200 text-gray-700">
+                        {feature.category}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className={`font-mono text-sm ${higherInValid ? 'font-bold text-green-700' : 'text-gray-600'}`}>
+                        {feature.validMean.toFixed(3)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className={`font-mono text-sm ${!higherInValid ? 'font-bold text-red-700' : 'text-gray-600'}`}>
+                        {feature.invalidMean.toFixed(3)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className={`font-mono text-sm font-medium ${higherInValid ? 'text-green-700' : 'text-red-700'}`}>
+                        {higherInValid ? '+' : ''}{feature.difference.toFixed(3)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="font-bold text-gray-900">{feature.separationScore.toFixed(2)}</span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Load More */}
+        {filtered.length > showCount && (
+          <div className="text-center mt-6">
+            <button
+              onClick={() => setShowCount(prev => prev + 50)}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
+            >
+              Mostra altre 50 features ({filtered.length - showCount} rimanenti)
+            </button>
+          </div>
+        )}
+
+        {filtered.length === 0 && (
+          <div className="text-center py-12 text-gray-500">
+            <div className="text-4xl mb-3">🔍</div>
+            <p>Nessuna feature trovata con i filtri applicati</p>
+          </div>
+        )}
+
+        {/* Export Data */}
+        <div className="mt-6 pt-6 border-t-2 border-gray-200">
+          <button
+            onClick={() => {
+              const csv = [
+                ['Feature', 'Category', 'Valid Mean', 'Invalid Mean', 'Difference', 'Separation Score'].join(','),
+                ...filtered.map(f => [
+                  f.name,
+                  f.category,
+                  f.validMean.toFixed(6),
+                  f.invalidMean.toFixed(6),
+                  f.difference.toFixed(6),
+                  f.separationScore.toFixed(6)
+                ].join(','))
+              ].join('\n')
+
+              const blob = new Blob([csv], { type: 'text/csv' })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = `features-analysis-${new Date().toISOString().split('T')[0]}.csv`
+              a.click()
+            }}
+            className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 transition text-sm font-medium"
+          >
+            📥 Esporta CSV ({filtered.length} features)
+          </button>
+        </div>
+      </div>
+    )
   }
 
   // [RESTO DEL CODICE PhotoAccordion e funzioni helper - invariato]
@@ -1100,32 +1323,8 @@ export default function TrainingDashboard() {
               <PhotoAccordion />
             </div>
 
-            {/* Technical Details (collapsed) */}
-            <details className="bg-white rounded-2xl shadow-lg border-2 border-gray-200 p-6">
-              <summary className="text-lg font-bold text-gray-900 cursor-pointer hover:text-indigo-600 transition">
-                🔬 Dettagli Tecnici (per esperti)
-              </summary>
-              <div className="mt-6 space-y-4">
-                {insights.topFeatures.slice(0, 10).map((feature, idx) => (
-                  <div key={idx} className="border-l-4 border-indigo-500 pl-4 py-2">
-                    <div className="font-mono text-sm text-gray-600">{feature.name}</div>
-                    <div className="grid grid-cols-2 gap-4 mt-2 text-sm">
-                      <div className="bg-green-50 rounded p-2">
-                        <span className="text-green-600 font-medium">VALID: </span>
-                        <span className="font-bold">{feature.validMean.toFixed(3)}</span>
-                      </div>
-                      <div className="bg-red-50 rounded p-2">
-                        <span className="text-red-600 font-medium">INVALID: </span>
-                        <span className="font-bold">{feature.invalidMean.toFixed(3)}</span>
-                      </div>
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      Separation Score: {feature.separationScore.toFixed(2)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </details>
+            {/* Complete Features Table */}
+            <AllFeaturesTable allFeatures={insights.allFeatures} />
           </>
         )}
       </div>
