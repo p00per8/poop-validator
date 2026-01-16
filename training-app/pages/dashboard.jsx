@@ -64,7 +64,6 @@ export default function TrainingDashboard() {
       const { data: photos, error } = await supabase
         .from('training_photos')
         .select('*')
-        .not('features', 'is', null)
 
       if (error) throw error
 
