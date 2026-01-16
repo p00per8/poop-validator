@@ -20,6 +20,7 @@ export default function TrainingApp() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [message, setMessage] = useState(null)
+  const [statsLoading, setStatsLoading] = useState(true)
 
   useEffect(() => {
     const savedExpiry = localStorage.getItem('training_session_expiry')
@@ -90,6 +91,7 @@ export default function TrainingApp() {
   }
 
   const loadStats = async () => {
+    setStatsLoading(true)
     try {
       // Query diretta al database
       const { data: photos, error } = await supabase
@@ -117,6 +119,8 @@ export default function TrainingApp() {
         total: 0,
         canUpload: true
       })
+    } finally {
+      setStatsLoading(false)
     }
   }
 
@@ -234,20 +238,39 @@ export default function TrainingApp() {
 
       {/* Stats Cards */}
       <div key={`stats-${stats.total}`} className="max-w-4xl mx-auto grid grid-cols-3 gap-4 mb-6">
-        <div className="bg-white rounded-lg shadow-md p-4 text-center">
-          <div className="text-3xl font-bold text-green-600">{stats.valid}</div>
-          <div className="text-sm text-gray-600 mt-1">✅ Foto Valide</div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow-md p-4 text-center">
-          <div className="text-3xl font-bold text-red-600">{stats.invalid}</div>
-          <div className="text-sm text-gray-600 mt-1">❌ Foto Non Valide</div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow-md p-4 text-center">
-          <div className="text-3xl font-bold text-blue-600">{stats.total}</div>
-          <div className="text-sm text-gray-600 mt-1">📊 Totale</div>
-        </div>
+        {statsLoading ? (
+          <>
+            <div className="bg-white rounded-lg shadow-md p-4 text-center">
+              <div className="h-8 bg-green-100 rounded w-12 mx-auto mb-2 animate-pulse"></div>
+              <div className="h-4 bg-gray-200 rounded w-24 mx-auto animate-pulse"></div>
+            </div>
+            <div className="bg-white rounded-lg shadow-md p-4 text-center">
+              <div className="h-8 bg-red-100 rounded w-12 mx-auto mb-2 animate-pulse"></div>
+              <div className="h-4 bg-gray-200 rounded w-24 mx-auto animate-pulse"></div>
+            </div>
+            <div className="bg-white rounded-lg shadow-md p-4 text-center">
+              <div className="h-8 bg-blue-100 rounded w-12 mx-auto mb-2 animate-pulse"></div>
+              <div className="h-4 bg-gray-200 rounded w-24 mx-auto animate-pulse"></div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="bg-white rounded-lg shadow-md p-4 text-center">
+              <div className="text-3xl font-bold text-green-600">{stats.valid}</div>
+              <div className="text-sm text-gray-600 mt-1">✅ Foto Valide</div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-md p-4 text-center">
+              <div className="text-3xl font-bold text-red-600">{stats.invalid}</div>
+              <div className="text-sm text-gray-600 mt-1">❌ Foto Non Valide</div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-md p-4 text-center">
+              <div className="text-3xl font-bold text-blue-600">{stats.total}</div>
+              <div className="text-sm text-gray-600 mt-1">📊 Totale</div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Camera Buttons */}

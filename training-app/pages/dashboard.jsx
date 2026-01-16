@@ -37,6 +37,7 @@ export default function TrainingDashboard() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [prediction, setPrediction] = useState(null)
+  const [activityLoading, setActivityLoading] = useState(false)
 
   // Imposta date predefinite (ultimi 7 giorni)
   useEffect(() => {
@@ -116,6 +117,7 @@ export default function TrainingDashboard() {
   }
 
   async function loadActivityData() {
+    setActivityLoading(true)
     try {
       // Attività giornaliere nel range
       const { data: rangePhotos } = await supabase
@@ -130,13 +132,13 @@ export default function TrainingDashboard() {
       rangePhotos?.forEach(photo => {
         const date = photo.created_at.split('T')[0]
         const current = dailyMap.get(date) || { valid: 0, invalid: 0 }
-        
+
         if (photo.label === 'valid') {
           current.valid++
         } else {
           current.invalid++
         }
-        
+
         dailyMap.set(date, current)
       })
 
@@ -156,12 +158,14 @@ export default function TrainingDashboard() {
       const { data: allPhotos } = await supabase
         .from('training_photos')
         .select('id')
-      
+
       const totalPhotos = allPhotos?.length || 0
       calculatePredictions(totalPhotos, activities)
 
     } catch (error) {
       console.error('Errore caricamento attività:', error)
+    } finally {
+      setActivityLoading(false)
     }
   }
 
@@ -291,128 +295,108 @@ export default function TrainingDashboard() {
 
       const featureName = feature.name.toLowerCase()
       const isValidHigher = feature.difference > 0
-      const diffPercent = Math.abs((feature.difference / (isValidHigher ? feature.invalidMean : feature.validMean)) * 100)
 
       let explanation = ''
       let learningPoint = ''
       let icon = '🔍'
-      let importance = 'normale'
+      let importance = 'importante'
 
       if (feature.separationScore > 1.5) {
-        importance = 'molto importante'
+        importance = 'cruciale'
         icon = '⭐'
       } else if (feature.separationScore > 0.8) {
         importance = 'importante'
         icon = '💡'
       }
 
-      // Analisi dettagliata per categoria
+      // Linguaggio MOLTO SEMPLICE
       if (featureName.includes('hist') || featureName.includes('bin')) {
-        const colorChannel = featureName.includes('_r_') ? 'rossi' :
-                           featureName.includes('_g_') ? 'verdi' :
-                           featureName.includes('_b_') ? 'blu' : 'colore'
+        const color = featureName.includes('_r_') ? 'rosse' :
+                     featureName.includes('_g_') ? 'verdi' :
+                     featureName.includes('_b_') ? 'blu' : 'colorate'
         if (isValidHigher) {
-          explanation = `Le foto CORRETTE hanno più pixel nella fascia ${colorChannel} analizzata. Questo suggerisce una dominanza cromatica specifica.`
-          learningPoint = `L'AI ha capito che i toni ${colorChannel} sono un indicatore chiave delle foto valide.`
+          explanation = `Le foto buone hanno più tonalità ${color}`
+          learningPoint = `Sta imparando a riconoscere i colori ${color} tipici delle foto corrette`
         } else {
-          explanation = `Le foto SBAGLIATE mostrano più presenza nella fascia ${colorChannel}. Le foto corrette hanno una distribuzione diversa.`
-          learningPoint = `L'AI distingue le foto sbagliate dalla loro distribuzione di colore ${colorChannel}.`
+          explanation = `Le foto sbagliate hanno più tonalità ${color}`
+          learningPoint = `Sta imparando che troppo ${color} indica una foto sbagliata`
         }
       } else if (featureName.includes('lbp')) {
         if (isValidHigher) {
-          explanation = `Il pattern di texture locale (LBP) è più presente nelle foto CORRETTE. Questo pattern microscopico cattura la "grana" della superficie.`
-          learningPoint = `L'AI riconosce una microtexture caratteristica nelle foto valide, invisibile all'occhio umano.`
+          explanation = `Le foto buone hanno una superficie con una "grana" particolare`
+          learningPoint = `Sta imparando a riconoscere la texture tipica della superficie corretta`
         } else {
-          explanation = `Questo pattern di microtexture è più comune nelle foto SBAGLIATE. La superficie corretta ha una texture diversa.`
-          learningPoint = `L'AI identifica texture superficiali che distinguono foto sbagliate.`
+          explanation = `Le foto sbagliate hanno una superficie diversa al tatto (visivamente)`
+          learningPoint = `Sta imparando che questa texture indica una foto sbagliata`
         }
       } else if (featureName.includes('glcm')) {
-        const measure = featureName.includes('contrast') ? 'contrasto locale' :
-                       featureName.includes('homogeneity') ? 'omogeneità' :
-                       featureName.includes('correlation') ? 'correlazione spaziale' : 'pattern texture'
         if (isValidHigher) {
-          explanation = `Le foto CORRETTE hanno un ${measure} più alto. Questo misura come i pixel vicini si relazionano tra loro.`
-          learningPoint = `L'AI ha imparato che il ${measure} della texture è tipico delle foto valide.`
+          explanation = `Le foto buone hanno più contrasto e texture uniforme`
+          learningPoint = `Sta imparando che una certa consistenza visiva è tipica delle foto corrette`
         } else {
-          explanation = `Le foto SBAGLIATE mostrano un ${measure} superiore. La texture corretta è matematicamente diversa.`
-          learningPoint = `L'AI usa il ${measure} per identificare foto incorrette.`
+          explanation = `Le foto sbagliate hanno troppo contrasto o texture irregolare`
+          learningPoint = `Sta imparando a individuare texture sospette`
         }
       } else if (featureName.includes('edge') || featureName.includes('gradient')) {
         if (isValidHigher) {
-          explanation = `Le foto CORRETTE hanno più bordi e transizioni nette (${diffPercent.toFixed(0)}% in più). Più dettagli visibili e complessità.`
-          learningPoint = `L'AI ha capito che le foto valide contengono più elementi definiti e bordi.`
+          explanation = `Le foto buone hanno più dettagli e contorni visibili`
+          learningPoint = `Sta imparando che i dettagli nitidi sono importanti`
         } else {
-          explanation = `Le foto SBAGLIATE mostrano più bordi marcati. Le foto corrette sono più uniformi e lisce.`
-          learningPoint = `L'AI distingue foto sbagliate dalla presenza eccessiva di bordi/dettagli.`
+          explanation = `Le foto sbagliate hanno troppi contorni marcati`
+          learningPoint = `Sta imparando che troppi dettagli possono indicare l'oggetto sbagliato`
         }
       } else if (featureName.includes('brightness') || featureName.includes('luminance')) {
         if (isValidHigher) {
-          explanation = `Le foto CORRETTE sono più luminose in media. Differenza: ${diffPercent.toFixed(0)}%. Migliore esposizione alla luce.`
-          learningPoint = `L'AI ha imparato che una luminosità adeguata è caratteristica di foto valide.`
+          explanation = `Le foto buone sono più luminose`
+          learningPoint = `Sta imparando che serve una buona illuminazione`
         } else {
-          explanation = `Le foto SBAGLIATE tendono ad essere sovraesposte o più chiare. Le corrette hanno toni più equilibrati.`
-          learningPoint = `L'AI identifica sovraesposizione come indicatore di foto scorrette.`
+          explanation = `Le foto sbagliate sono troppo chiare (sovraesposte)`
+          learningPoint = `Sta imparando a riconoscere quando la foto è troppo luminosa`
         }
       } else if (featureName.includes('rgb') || featureName.includes('color')) {
-        const channel = featureName.includes('_r_') ? 'ROSSO' :
-                       featureName.includes('_g_') ? 'VERDE' :
-                       featureName.includes('_b_') ? 'BLU' : 'COLORE'
+        const color = featureName.includes('_r_') ? 'rosso' :
+                     featureName.includes('_g_') ? 'verde' :
+                     featureName.includes('_b_') ? 'blu' : 'colore'
         if (isValidHigher) {
-          explanation = `Il canale ${channel} è più intenso nelle foto CORRETTE (+${diffPercent.toFixed(0)}%). Dominanza cromatica specifica.`
-          learningPoint = `L'AI usa l'intensità del ${channel} come marker distintivo delle foto valide.`
+          explanation = `Le foto buone hanno più ${color}`
+          learningPoint = `Sta imparando che il ${color} è un segnale positivo`
         } else {
-          explanation = `Il canale ${channel} è più pronunciato nelle foto SBAGLIATE. Bilanciamento colori diverso.`
-          learningPoint = `L'AI riconosce foto sbagliate dal loro profilo cromatico ${channel}.`
+          explanation = `Le foto sbagliate hanno più ${color}`
+          learningPoint = `Sta imparando che troppo ${color} è sospetto`
         }
       } else if (featureName.includes('std') || featureName.includes('variance')) {
         if (isValidHigher) {
-          explanation = `Le foto CORRETTE hanno più variazione/contrasto. I valori sono meno uniformi, più "texturizzati".`
-          learningPoint = `L'AI ha capito che la variabilità nei pixel è tipica di foto valide.`
+          explanation = `Le foto buone hanno più variazioni di colore e texture`
+          learningPoint = `Sta imparando che le foto corrette sono più "ricche" visivamente`
         } else {
-          explanation = `Le foto SBAGLIATE mostrano più variabilità. Le corrette sono più omogenee e uniformi.`
-          learningPoint = `L'AI usa l'uniformità come indicatore di correttezza.`
-        }
-      } else if (featureName.includes('fft') || featureName.includes('frequency')) {
-        if (isValidHigher) {
-          explanation = `Le foto CORRETTE hanno più energia nelle frequenze analizzate. Pattern ripetitivi o texture periodiche presenti.`
-          learningPoint = `L'AI ha scoperto pattern frequenziali caratteristici nelle foto valide.`
-        } else {
-          explanation = `Le foto SBAGLIATE mostrano più componenti frequenziali. Diversa struttura periodica dell'immagine.`
-          learningPoint = `L'AI identifica foto sbagliate dall'analisi delle frequenze spaziali.`
+          explanation = `Le foto sbagliate sono troppo varie o caotiche`
+          learningPoint = `Sta imparando a riconoscere quando c'è troppa confusione nell'immagine`
         }
       } else if (featureName.includes('spatial') || featureName.includes('zone')) {
-        const zone = featureName.match(/zone[_\[]?(\d+)/)?.[1] || 'specifica'
+        const zone = featureName.match(/zone[_\[]?(\d+)/)?.[1] || '?'
         if (isValidHigher) {
-          explanation = `Nella zona ${zone} dell'immagine, le foto CORRETTE hanno valori più alti. Distribuzione spaziale caratteristica.`
-          learningPoint = `L'AI ha imparato che la zona ${zone} contiene informazioni discriminanti per foto valide.`
+          explanation = `In una certa parte della foto (zona ${zone}), le foto buone si comportano diversamente`
+          learningPoint = `Sta imparando che alcune zone della foto sono più importanti di altre`
         } else {
-          explanation = `La zona ${zone} è più intensa nelle foto SBAGLIATE. Diversa distribuzione spaziale delle caratteristiche.`
-          learningPoint = `L'AI usa la zona ${zone} per identificare foto incorrette.`
-        }
-      } else if (featureName.includes('gabor')) {
-        if (isValidHigher) {
-          explanation = `Il filtro Gabor (orientamento/frequenza) risponde di più nelle foto CORRETTE. Pattern direzionali specifici presenti.`
-          learningPoint = `L'AI riconosce orientamenti e pattern direzionali tipici delle foto valide.`
-        } else {
-          explanation = `Questo pattern Gabor è più comune nelle foto SBAGLIATE. Diversa struttura direzionale.`
-          learningPoint = `L'AI usa analisi direzionale per identificare foto sbagliate.`
+          explanation = `In una certa parte della foto, le foto sbagliate hanno caratteristiche particolari`
+          learningPoint = `Sta imparando a controllare zone specifiche per trovare problemi`
         }
       } else if (featureName.includes('entropy')) {
         if (isValidHigher) {
-          explanation = `Le foto CORRETTE hanno più entropia (disordine/complessità). Più informazione visiva contenuta.`
-          learningPoint = `L'AI ha capito che le foto valide contengono più complessità informativa.`
+          explanation = `Le foto buone contengono più "informazione" visiva`
+          learningPoint = `Sta imparando che le foto corrette sono più complesse e dettagliate`
         } else {
-          explanation = `Le foto SBAGLIATE sono più complesse/disordinate. Le corrette sono più ordinate e prevedibili.`
-          learningPoint = `L'AI identifica foto sbagliate dalla loro maggiore complessità.`
+          explanation = `Le foto sbagliate sono troppo complesse o confusionarie`
+          learningPoint = `Sta imparando che troppa complessità può essere un problema`
         }
       } else {
-        // Fallback generico ma informativo
+        // Fallback super semplice
         if (isValidHigher) {
-          explanation = `Questa feature matematica è ${diffPercent.toFixed(0)}% più alta nelle foto CORRETTE. Caratteristica distintiva identificata dall'AI.`
-          learningPoint = `L'AI ha scoperto questa feature come indicatore statistico di foto valide.`
+          explanation = `Le foto buone hanno questa caratteristica più sviluppata`
+          learningPoint = `Sta imparando che questa cosa distingue le foto corrette`
         } else {
-          explanation = `Questa feature è ${diffPercent.toFixed(0)}% più alta nelle foto SBAGLIATE. Pattern matematico discriminante.`
-          learningPoint = `L'AI usa questa feature per riconoscere foto incorrette.`
+          explanation = `Le foto sbagliate hanno questa caratteristica più sviluppata`
+          learningPoint = `Sta imparando a riconoscere questo segnale di errore`
         }
       }
 
@@ -421,13 +405,9 @@ export default function TrainingDashboard() {
         importance,
         title: humanizeFeatureName(feature.name),
         explanation,
-        learningPoint,  // NUOVO: cosa sta imparando l'AI
+        learningPoint,
         technicalName: feature.name,
-        validHigher: isValidHigher,
-        difference: diffPercent.toFixed(0),
-        score: feature.separationScore.toFixed(2),
-        validMean: feature.validMean.toFixed(3),
-        invalidMean: feature.invalidMean.toFixed(3)
+        validHigher: isValidHigher
       })
     })
 
@@ -1275,18 +1255,37 @@ export default function TrainingDashboard() {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white rounded-2xl shadow-lg border-2 border-gray-100 p-6">
-            <div className="text-sm text-gray-500 mb-2">📸 Foto Totali</div>
-            <div className="text-4xl font-bold text-gray-900">{stats?.total || 0}</div>
-          </div>
-          <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl shadow-lg border-2 border-green-200 p-6">
-            <div className="text-sm text-green-700 font-medium mb-2">✅ Foto Corrette</div>
-            <div className="text-4xl font-bold text-green-700">{stats?.valid || 0}</div>
-          </div>
-          <div className="bg-gradient-to-br from-red-50 to-rose-50 rounded-2xl shadow-lg border-2 border-red-200 p-6">
-            <div className="text-sm text-red-700 font-medium mb-2">❌ Foto Sbagliate</div>
-            <div className="text-4xl font-bold text-red-700">{stats?.invalid || 0}</div>
-          </div>
+          {loading ? (
+            <>
+              <div className="bg-white rounded-2xl shadow-lg border-2 border-gray-100 p-6">
+                <div className="h-4 bg-gray-200 rounded w-24 mb-3 animate-pulse"></div>
+                <div className="h-10 bg-gray-200 rounded w-16 animate-pulse"></div>
+              </div>
+              <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl shadow-lg border-2 border-green-200 p-6">
+                <div className="h-4 bg-green-200 rounded w-28 mb-3 animate-pulse"></div>
+                <div className="h-10 bg-green-200 rounded w-16 animate-pulse"></div>
+              </div>
+              <div className="bg-gradient-to-br from-red-50 to-rose-50 rounded-2xl shadow-lg border-2 border-red-200 p-6">
+                <div className="h-4 bg-red-200 rounded w-28 mb-3 animate-pulse"></div>
+                <div className="h-10 bg-red-200 rounded w-16 animate-pulse"></div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="bg-white rounded-2xl shadow-lg border-2 border-gray-100 p-6">
+                <div className="text-sm text-gray-500 mb-2">📸 Foto Totali</div>
+                <div className="text-4xl font-bold text-gray-900">{stats?.total || 0}</div>
+              </div>
+              <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl shadow-lg border-2 border-green-200 p-6">
+                <div className="text-sm text-green-700 font-medium mb-2">✅ Foto Corrette</div>
+                <div className="text-4xl font-bold text-green-700">{stats?.valid || 0}</div>
+              </div>
+              <div className="bg-gradient-to-br from-red-50 to-rose-50 rounded-2xl shadow-lg border-2 border-red-200 p-6">
+                <div className="text-sm text-red-700 font-medium mb-2">❌ Foto Sbagliate</div>
+                <div className="text-4xl font-bold text-red-700">{stats?.invalid || 0}</div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* WARNING: Missing Features */}
@@ -1350,13 +1349,20 @@ export default function TrainingDashboard() {
           </div>
 
           {/* Grafico */}
-          {dailyActivities.length > 0 ? (
+          {activityLoading ? (
+            <div className="space-y-3 py-6">
+              <div className="h-8 bg-gray-200 rounded animate-pulse"></div>
+              <div className="h-48 bg-gray-200 rounded animate-pulse"></div>
+              <div className="h-8 bg-gray-200 rounded animate-pulse"></div>
+            </div>
+          ) : dailyActivities.length > 0 ? (
             <div style={{ height: '300px' }}>
-              <Bar data={chartData} options={chartOptions} />
+              <Bar key={`${startDate}-${endDate}`} data={chartData} options={chartOptions} />
             </div>
           ) : (
             <div className="text-center py-12 text-gray-500">
-              Nessuna attività nel periodo selezionato
+              <div className="text-4xl mb-3">📅</div>
+              <p>Nessuna attività nel periodo selezionato</p>
             </div>
           )}
         </div>
@@ -1453,24 +1459,17 @@ export default function TrainingDashboard() {
                             {insight.importance.toUpperCase()}
                           </span>
                         </div>
-                        <p className="text-gray-700 text-lg leading-relaxed mb-3">{insight.explanation}</p>
+                        <p className="text-gray-700 text-base leading-relaxed mb-3">{insight.explanation}</p>
 
                         {/* Learning Point - Cosa sta imparando l'AI */}
-                        <div className="bg-white/80 rounded-lg p-3 border-l-4 border-purple-400">
-                          <div className="flex items-start gap-2">
-                            <span className="text-lg">🧠</span>
-                            <div>
-                              <div className="text-xs font-bold text-purple-700 uppercase mb-1">Cosa sta imparando</div>
-                              <p className="text-sm text-purple-900 font-medium">{insight.learningPoint}</p>
+                        <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg p-4 border-l-4 border-purple-400">
+                          <div className="flex items-start gap-3">
+                            <span className="text-2xl">🧠</span>
+                            <div className="flex-1">
+                              <div className="text-xs font-bold text-purple-700 uppercase tracking-wide mb-2">💡 Cosa sta imparando</div>
+                              <p className="text-base text-purple-900 leading-relaxed">{insight.learningPoint}</p>
                             </div>
                           </div>
-                        </div>
-
-                        <div className="mt-3 text-sm text-gray-500">
-                          Differenza: <span className="font-bold">{insight.difference}%</span> •
-                          Affidabilità: <span className="font-bold">{insight.score}%</span> •
-                          Valid: <span className="font-mono">{insight.validMean}</span> •
-                          Invalid: <span className="font-mono">{insight.invalidMean}</span>
                         </div>
                       </div>
                     </div>
@@ -1481,32 +1480,37 @@ export default function TrainingDashboard() {
 
             {/* Summary Box - Cosa sta imparando */}
             <div className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl shadow-xl p-8 text-white mb-8">
-              <h3 className="text-2xl font-bold mb-4">🧠 Cosa Sta Imparando l'AI</h3>
-              <div className="text-lg space-y-4">
-                <p>
-                  ✨ Ho analizzato <span className="font-bold text-yellow-300">{insights.totalFeatures}</span> caratteristiche matematiche diverse estratte dalle tue foto
+              <h3 className="text-3xl font-bold mb-6">🧠 In Sintesi: Cosa Sta Imparando</h3>
+              <div className="text-lg space-y-5 leading-relaxed">
+                <p className="text-xl">
+                  ✨ L'AI ha analizzato <span className="font-bold text-yellow-300">{insights.totalFeatures}</span> caratteristiche diverse dalle tue foto
                 </p>
-                <p>
-                  🎯 Ho identificato <span className="font-bold text-yellow-300">{insights.topFeatures.filter(f => f.separationScore > 1.5).length}</span> caratteristiche molto importanti (score {'>'}1.5) e <span className="font-bold text-yellow-300">{insights.topFeatures.filter(f => f.separationScore > 0.8 && f.separationScore <= 1.5).length}</span> importanti (score 0.8-1.5)
+                <p className="text-xl">
+                  🎯 Ha trovato <span className="font-bold text-yellow-300">{insights.topFeatures.filter(f => f.separationScore > 1.5).length}</span> caratteristiche cruciali e <span className="font-bold text-yellow-300">{insights.topFeatures.filter(f => f.separationScore > 0.8 && f.separationScore <= 1.5).length}</span> importanti che distinguono le foto
                 </p>
-                <div className="bg-white/10 rounded-lg p-4 space-y-2">
-                  <div className="font-bold mb-2">📋 Distribuzione per Categoria:</div>
+                <div className="bg-white/20 rounded-xl p-5 space-y-3">
+                  <div className="font-bold text-xl mb-3">📊 Cosa sta guardando:</div>
                   {Object.entries(insights.byCategory).map(([category, features]) => {
                     const strongCount = features.filter(f => f.separationScore > 1.5).length
-                    const percentage = ((features.length / insights.totalFeatures) * 100).toFixed(0)
+                    const isImportant = strongCount > 0
                     return (
-                      <div key={category} className="flex justify-between items-center">
-                        <span>{category}: <span className="font-bold">{features.length}</span> features ({percentage}%)</span>
-                        <span className="text-yellow-300">{strongCount} forti</span>
+                      <div key={category} className="flex items-center gap-3">
+                        <span className="text-2xl">{category.split(' ')[0]}</span>
+                        <span className="flex-1">{category.includes(' ') ? category.split(' ').slice(1).join(' ') : category}</span>
+                        {isImportant && (
+                          <span className="px-3 py-1 bg-yellow-400 text-gray-900 rounded-full text-sm font-bold">
+                            {strongCount} {strongCount === 1 ? 'aspetto cruciale' : 'aspetti cruciali'}
+                          </span>
+                        )}
                       </div>
                     )
                   })}
                 </div>
-                <p>
-                  🧪 L'AI sta imparando AUTONOMAMENTE quali pattern visivi distinguono le foto corrette da quelle sbagliate, analizzando colore, texture, forme, frequenze e distribuzione spaziale
+                <p className="text-xl border-t border-white/30 pt-4">
+                  🔬 L'AI sta imparando da sola quali dettagli visivi distinguono le foto buone da quelle sbagliate
                 </p>
-                <p>
-                  🚀 Più foto raccogli, più l'AI affina la sua comprensione dei pattern discriminanti
+                <p className="text-xl">
+                  🚀 Più foto carichi, più diventa brava a riconoscerle!
                 </p>
               </div>
             </div>
