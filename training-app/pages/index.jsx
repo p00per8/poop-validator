@@ -145,8 +145,13 @@ export default function TrainingApp() {
       setUploadProgress(40)
       showMessage('info', '☁️ Upload e estrazione features...')
       
+      // Generate unique filename: timestamp + random string
+      const timestamp = Date.now()
+      const randomId = Math.random().toString(36).substring(2, 9)
+      const uniqueFilename = `${timestamp}_${randomId}.jpg`
+
       const formData = new FormData()
-      formData.append('photo', compressedBlob, 'photo.jpg')
+      formData.append('photo', compressedBlob, uniqueFilename)
       formData.append('label', isValid ? 'valid' : 'invalid')
       formData.append('uploaded_by', 'training-app')
       
