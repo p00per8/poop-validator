@@ -587,11 +587,17 @@ export default function TrainingDashboard() {
   function getFeatureCategory(name) {
     const lower = name.toLowerCase()
 
+    // Debug: log feature names to see actual patterns
+    if (Math.random() < 0.01) { // Log only 1% to avoid spam
+      console.log('Feature name:', name)
+    }
+
     // Colore e luminosità
     if (lower.includes('color') || lower.includes('rgb') || lower.includes('hsv') ||
         lower.includes('hue') || lower.includes('saturation') || lower.includes('brightness') ||
         lower.includes('_r_') || lower.includes('_g_') || lower.includes('_b_') ||
-        lower.includes('luminance') || lower.includes('chroma')) {
+        lower.includes('luminance') || lower.includes('chroma') ||
+        lower.includes('red') || lower.includes('green') || lower.includes('blue')) {
       return '🎨 Colore'
     }
 
@@ -628,7 +634,7 @@ export default function TrainingDashboard() {
       return '🗺️ Distribuzione'
     }
 
-    // Statistiche base
+    // Statistiche base - MUST BE AFTER OTHER CATEGORIES (more generic)
     if (lower.includes('mean') || lower.includes('std') || lower.includes('variance') ||
         lower.includes('median') || lower.includes('min') || lower.includes('max') ||
         lower.includes('range') || lower.includes('skewness') || lower.includes('kurtosis') ||
@@ -641,6 +647,8 @@ export default function TrainingDashboard() {
       return '🔄 Momenti'
     }
 
+    // Log uncategorized features
+    console.log('⚠️ Uncategorized feature:', name)
     return '📋 Altro'
   }
 
