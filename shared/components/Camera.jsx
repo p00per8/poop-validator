@@ -87,7 +87,7 @@ export default function Camera({ onCapture, onCancel, label, fullscreen = false 
       canvas.toBlob((blob) => {
         if (blob) {
           stopCamera()
-          onCapture(blob)
+          onCapture(blob, label === 'valid')
         }
       }, 'image/jpeg', 0.95)
 
