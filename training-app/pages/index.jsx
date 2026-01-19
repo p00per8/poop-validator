@@ -90,18 +90,33 @@ export default function TrainingApp() {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`
   }
 
+  // Helper: determina label dal filename (per gestire rinominazioni manuali in Supabase)
+  const getLabelFromFilename = (imageUrl) => {
+    if (!imageUrl) return null
+    const filename = imageUrl.split('/').pop()
+    if (filename.startsWith('valid_')) return 'valid'
+    if (filename.startsWith('invalid_')) return 'invalid'
+    return null
+  }
+
   const loadStats = async () => {
     setStatsLoading(true)
     try {
-      // Query diretta al database
+      // Query con image_url per leggere label dal filename
       const { data: photos, error } = await supabase
         .from('training_photos')
-        .select('label')
+        .select('label, image_url')
 
       if (error) throw error
 
-      const valid = photos.filter(p => p.label === 'valid').length
-      const invalid = photos.filter(p => p.label === 'invalid').length
+      // Determina label dal filename (priorità) o dal campo database (fallback)
+      const photosWithLabels = photos.map(p => ({
+        ...p,
+        effectiveLabel: getLabelFromFilename(p.image_url) || p.label
+      }))
+
+      const valid = photosWithLabels.filter(p => p.effectiveLabel === 'valid').length
+      const invalid = photosWithLabels.filter(p => p.effectiveLabel === 'invalid').length
       const total = photos.length
 
       setStats({
