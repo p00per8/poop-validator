@@ -145,14 +145,15 @@ export default function TrainingApp() {
       setUploadProgress(40)
       showMessage('info', '☁️ Upload e estrazione features...')
       
-      // Generate unique filename: timestamp + random string
+      // Generate unique filename: label_timestamp_randomId.jpg
       const timestamp = Date.now()
       const randomId = Math.random().toString(36).substring(2, 9)
-      const uniqueFilename = `${timestamp}_${randomId}.jpg`
+      const label = isValid ? 'valid' : 'invalid'
+      const uniqueFilename = `${label}_${timestamp}_${randomId}.jpg`
 
       const formData = new FormData()
       formData.append('photo', compressedBlob, uniqueFilename)
-      formData.append('label', isValid ? 'valid' : 'invalid')
+      formData.append('label', label)
       formData.append('uploaded_by', 'training-app')
       
       const cloudRunUrl = process.env.NEXT_PUBLIC_CLOUD_RUN_URL
@@ -278,32 +279,64 @@ export default function TrainingApp() {
         )}
       </div>
 
+      {/* Training Ready Banner */}
+      {!statsLoading && stats.valid >= 50 && stats.invalid >= 50 && (
+        <div className="max-w-4xl mx-auto mb-6">
+          <div className="bg-gradient-to-r from-green-500 to-blue-500 text-white rounded-lg shadow-lg p-6 text-center">
+            <div className="text-4xl mb-2">🎉</div>
+            <div className="text-2xl font-bold mb-2">Dataset Completo!</div>
+            <p className="text-lg">50 foto valide e 50 foto invalide raccolte.</p>
+            <p className="text-sm opacity-90 mt-2">Puoi iniziare il training del modello!</p>
+          </div>
+        </div>
+      )}
+
       {/* Camera Buttons */}
       {!mode && !isProcessing && (
         <div className="max-w-4xl mx-auto grid grid-cols-2 gap-4 mb-6">
-          <button
-            onClick={() => setMode('valid')}
-            disabled={!stats.canUpload}
-            className={`p-6 rounded-lg shadow-md font-semibold text-lg transition-all ${
-              stats.canUpload
-                ? 'bg-green-500 text-white hover:bg-green-600 active:scale-95'
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-            }`}
-          >
-            ✅ Foto VALIDA
-          </button>
-          
-          <button
-            onClick={() => setMode('invalid')}
-            disabled={!stats.canUpload}
-            className={`p-6 rounded-lg shadow-md font-semibold text-lg transition-all ${
-              stats.canUpload
-                ? 'bg-red-500 text-white hover:bg-red-600 active:scale-95'
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-            }`}
-          >
-            ❌ Foto NON VALIDA
-          </button>
+          {/* Valid Photo Button */}
+          <div>
+            <button
+              onClick={() => setMode('valid')}
+              disabled={!stats.canUpload || stats.valid >= 50}
+              className={`w-full p-6 rounded-lg shadow-md font-semibold text-lg transition-all ${
+                stats.canUpload && stats.valid < 50
+                  ? 'bg-green-500 text-white hover:bg-green-600 active:scale-95'
+                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              }`}
+            >
+              ✅ Foto VALIDA
+            </button>
+            <div className="mt-2 text-center">
+              <span className={`text-sm font-medium ${
+                stats.valid >= 50 ? 'text-green-600' : 'text-gray-600'
+              }`}>
+                {stats.valid}/50 {stats.valid >= 50 ? '✓ Completato!' : ''}
+              </span>
+            </div>
+          </div>
+
+          {/* Invalid Photo Button */}
+          <div>
+            <button
+              onClick={() => setMode('invalid')}
+              disabled={!stats.canUpload || stats.invalid >= 50}
+              className={`w-full p-6 rounded-lg shadow-md font-semibold text-lg transition-all ${
+                stats.canUpload && stats.invalid < 50
+                  ? 'bg-red-500 text-white hover:bg-red-600 active:scale-95'
+                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              }`}
+            >
+              ❌ Foto NON VALIDA
+            </button>
+            <div className="mt-2 text-center">
+              <span className={`text-sm font-medium ${
+                stats.invalid >= 50 ? 'text-green-600' : 'text-gray-600'
+              }`}>
+                {stats.invalid}/50 {stats.invalid >= 50 ? '✓ Completato!' : ''}
+              </span>
+            </div>
+          </div>
         </div>
       )}
 
