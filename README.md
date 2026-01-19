@@ -324,15 +324,136 @@ tfjs.converters.save_keras_model(
 **Structure:**
 ```
 training-dataset/
-├── valid/
-│   ├── uuid-001.jpg
-│   ├── uuid-002.jpg
-│   └── ...
-└── invalid/
-    ├── uuid-101.jpg
-    ├── uuid-102.jpg
-    └── ...
+├── valid_1737142567_abc123d.jpg
+├── valid_1737142890_def456g.jpg
+├── invalid_1737143000_ghi789j.jpg
+└── invalid_1737143200_klm012n.jpg
 ```
+
+**Filename Format:** `{label}_{timestamp}_{randomId}.jpg`
+- `label`: "valid" or "invalid"
+- `timestamp`: Unix timestamp in milliseconds
+- `randomId`: 7-character random string for uniqueness
+
+---
+
+## 🔄 Intelligent Label System
+
+### Overview
+
+Il sistema legge i label delle foto in modo "intelligente" da **due fonti** con ordine di priorità:
+
+1. **Filename** (priorità massima) - prefisso `valid_*` o `invalid_*`
+2. **Database field** (fallback) - campo `label` nella tabella
+
+Questo permette di **rinominare manualmente** le foto in Supabase Storage e vedere i conteggi aggiornarsi automaticamente senza toccare il database.
+
+### Come Funziona
+
+```javascript
+// Esempio di logica intelligente
+function getEffectiveLabel(photo) {
+  const filename = photo.image_url.split('/').pop()
+
+  // Priorità 1: Leggi dal filename
+  if (filename.startsWith('valid_')) return 'valid'
+  if (filename.startsWith('invalid_')) return 'invalid'
+
+  // Priorità 2: Fallback al DB
+  return photo.label
+}
+```
+
+**Dove viene usato:**
+- 📊 Index page stats (conteggio valid/invalid)
+- 📈 Dashboard analytics (grafici, insights)
+- 🗂️ Photo lists (badge colore, label display)
+- 📉 Activity charts (daily upload tracking)
+
+### Manual Rename in Supabase
+
+Puoi rinominare foto direttamente in Supabase Storage:
+
+1. Vai su **Supabase Dashboard** → Storage → `training-dataset`
+2. Rinomina `invalid_1234567890_abc.jpg` → `valid_1234567890_abc.jpg`
+3. **Ricarica la dashboard** → il conteggio si aggiorna automaticamente!
+
+Nessun bisogno di aggiornare il database manualmente.
+
+### Sync Database Labels (Opzionale)
+
+Se vuoi anche sincronizzare il campo `label` nel database (per consistenza):
+
+#### **Opzione A: Script Node.js**
+```bash
+cd /path/to/poop-validator
+node scripts/sync-labels-from-filenames.js
+```
+
+#### **Opzione B: API Endpoint**
+```bash
+# Assicurati che il server Next.js sia in esecuzione
+npm run dev
+
+# In un altro terminale
+./scripts/sync-labels.sh
+
+# O manualmente con curl
+curl -X POST http://localhost:3000/api/sync-labels
+```
+
+#### **Output atteso:**
+```
+🔄 Sincronizzazione Label da Filename
+=====================================
+
+📊 Trovate 45 foto nel database
+
+🔧 [UPDATE] invalid_1737142567_abc123d.jpg
+   DB Label: invalid → valid
+   ✅ Aggiornato
+
+==================================================
+📊 RIEPILOGO:
+   ✅ Aggiornati: 1
+   ⏭️  Già sincronizzati: 44
+   📝 Totale: 45
+==================================================
+```
+
+### Benefits
+
+✅ **Flessibilità**: Rinominazioni manuali riconosciute immediatamente
+✅ **Nessun downtime**: Nessun bisogno di rideploy o restart
+✅ **Backward compatible**: File senza prefisso usano il DB label
+✅ **Audit trail**: Filename diventa "source of truth"
+✅ **Error recovery**: Fix mislabeling con semplici rename
+
+### Use Cases
+
+**Scenario 1: Foto mislabeled durante upload bug**
+```bash
+# Prima del fix
+invalid_1737142567_abc.jpg  (era una foto VALID!)
+
+# Rename in Supabase Storage
+valid_1737142567_abc.jpg
+
+# Dashboard mostra subito il conteggio corretto
+✅ Valid: 11 → 12
+❌ Invalid: 35 → 34
+```
+
+**Scenario 2: Revisione manuale del dataset**
+- Rivedi foto nella dashboard
+- Identifichi foto classificata male
+- Rinomini in Supabase Storage
+- I conteggi si aggiornano istantaneamente
+
+**Scenario 3: Bulk correction**
+- Usa Supabase CLI o SDK per bulk rename
+- Tutti i conteggi si aggiornano alla prossima query
+- Opzionalmente, chiama `/api/sync-labels` per aggiornare anche il DB
 
 ---
 

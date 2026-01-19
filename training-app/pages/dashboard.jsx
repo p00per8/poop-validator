@@ -26,6 +26,20 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
+// Helper: determina label dal filename (gestisce rinominazioni manuali in Supabase)
+function getLabelFromFilename(imageUrl) {
+  if (!imageUrl) return null
+  const filename = imageUrl.split('/').pop()
+  if (filename.startsWith('valid_')) return 'valid'
+  if (filename.startsWith('invalid_')) return 'invalid'
+  return null
+}
+
+// Helper: applica label intelligente (filename ha priorità su campo DB)
+function getEffectiveLabel(photo) {
+  return getLabelFromFilename(photo.image_url) || photo.label
+}
+
 export default function TrainingDashboard() {
   const router = useRouter()
   const [stats, setStats] = useState(null)
@@ -85,8 +99,8 @@ export default function TrainingDashboard() {
         return
       }
 
-      const validPhotos = photos.filter(p => p.label === 'valid')
-      const invalidPhotos = photos.filter(p => p.label === 'invalid')
+      const validPhotos = photos.filter(p => getEffectiveLabel(p) === 'valid')
+      const invalidPhotos = photos.filter(p => getEffectiveLabel(p) === 'invalid')
       const missingFeaturesCount = (allPhotos?.length || 0) - photos.length
 
       setStats({
@@ -133,7 +147,7 @@ export default function TrainingDashboard() {
         const date = photo.created_at.split('T')[0]
         const current = dailyMap.get(date) || { valid: 0, invalid: 0 }
 
-        if (photo.label === 'valid') {
+        if (getEffectiveLabel(photo) === 'valid') {
           current.valid++
         } else {
           current.invalid++
@@ -1089,15 +1103,15 @@ export default function TrainingDashboard() {
               >
                 <div className="flex items-center gap-4">
                   <div className={`w-12 h-12 rounded-full flex items-center justify-center text-2xl ${
-                    photo.label === 'valid' 
-                      ? 'bg-green-100 text-green-700' 
+                    getEffectiveLabel(photo) === 'valid'
+                      ? 'bg-green-100 text-green-700'
                       : 'bg-red-100 text-red-700'
                   }`}>
-                    {photo.label === 'valid' ? '✓' : '✗'}
+                    {getEffectiveLabel(photo) === 'valid' ? '✓' : '✗'}
                   </div>
                   <div className="text-left">
                     <div className="font-bold text-gray-900">
-                      Foto #{idx + 1} - {photo.label === 'valid' ? 'CORRETTA' : 'SBAGLIATA'}
+                      Foto #{idx + 1} - {getEffectiveLabel(photo) === 'valid' ? 'CORRETTA' : 'SBAGLIATA'}
                     </div>
                     <div className="text-sm text-gray-500">
                       {featureCount} caratteristiche • Caricata il {uploadDate}
