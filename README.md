@@ -382,44 +382,62 @@ Nessun bisogno di aggiornare il database manualmente.
 
 ### Sync Database Labels (Opzionale)
 
-Se vuoi anche sincronizzare il campo `label` nel database (per consistenza):
+Se hai rinominato manualmente foto in Supabase Storage, usa questi script per sincronizzare:
 
-#### **Opzione A: Script Node.js**
+#### **Opzione A: Sync completo Storage → Database** (Consigliato)
 ```bash
 cd /path/to/poop-validator
-node scripts/sync-labels-from-filenames.js
+npm install dotenv  # Solo la prima volta
+node sync-storage-to-db.js
 ```
 
-#### **Opzione B: API Endpoint**
+Questo script:
+- Legge i file REALI da Supabase Storage
+- Aggiorna `image_url` nel database con i nomi corretti
+- Aggiorna `label` basandosi sul prefisso del filename
+- Gestisce foto rinominate manualmente
+
+#### **Opzione B: Sync solo label (Filename già corretto nel DB)**
 ```bash
-# Assicurati che il server Next.js sia in esecuzione
-npm run dev
-
-# In un altro terminale
-./scripts/sync-labels.sh
-
-# O manualmente con curl
-curl -X POST http://localhost:3000/api/sync-labels
+node sync-now.js
 ```
 
-#### **Output atteso:**
+Usa questo se `image_url` è già corretto ma il campo `label` non lo è.
+
+#### **Output atteso (Opzione A):**
 ```
-🔄 Sincronizzazione Label da Filename
-=====================================
+🔄 Sincronizzazione Storage → Database
+======================================
 
-📊 Trovate 45 foto nel database
+📦 Lettura file da Supabase Storage...
+   Trovati 45 file in Storage
 
-🔧 [UPDATE] invalid_1737142567_abc123d.jpg
-   DB Label: invalid → valid
+💾 Lettura foto dal Database...
+   Trovate 45 foto nel Database
+
+🔧 Sincronizzazione in corso...
+
+🔧 [UPDATE] invalid_1737142567_abc.jpg → valid_1737142567_abc.jpg
+   Label: invalid → valid
    ✅ Aggiornato
 
-==================================================
+======================================
 📊 RIEPILOGO:
-   ✅ Aggiornati: 1
-   ⏭️  Già sincronizzati: 44
+   ✅ Aggiornati: 5
+   ⏭️  Già sincronizzati: 40
    📝 Totale: 45
-==================================================
+======================================
+
+✨ Sincronizzazione completata!
+   Ricarica index e dashboard per vedere i conteggi aggiornati.
 ```
+
+**Quando usare quale script:**
+- Hai rinominato file in Storage? → `node sync-storage-to-db.js`
+- Solo il campo `label` è sbagliato? → `node sync-now.js`
+- Prima volta dopo setup? → `node sync-storage-to-db.js` (più sicuro)
+
+---
 
 ### Benefits
 
