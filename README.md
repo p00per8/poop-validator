@@ -475,6 +475,71 @@ valid_1737142567_abc.jpg
 
 ---
 
+## 📊 Dashboard - Spiegazioni User-Friendly
+
+La dashboard è stata ottimizzata per utenti non tecnici con spiegazioni chiare e categorizzazione migliorata.
+
+### Cosa Significa Ogni Metrica
+
+#### **Numero dei Dettagli (es. 567)**
+- Rappresenta il **numero totale di caratteristiche tecniche** estratte da ogni foto
+- Include: colori, forme, texture, luminosità, contrasti, bordi, pattern, ecc.
+- Ogni foto viene analizzata e suddivisa in centinaia di valori numerici
+
+#### **"Caratteristiche Utili" (cruciali/importanti)**
+- **Molto utili** (score > 1.5): Dettagli molto diversi tra foto VALID e INVALID
+- **Abbastanza utili** (score 0.8-1.5): Dettagli che aiutano un po' a distinguere
+- **Poco utili** (score 0.5-0.8): Differenza minima tra i due tipi
+- **Non utili** (score < 0.5): Stesso valore in entrambi i tipi di foto
+
+#### **Score di Utilità (Separation Score)**
+Misura quanto un dettaglio è diverso tra foto valide e non valide:
+- **Formula**: Differenza media / deviazione standard pooled
+- **Interpretazione**: Più alto = più utile per distinguere le foto
+- **Esempio**: Se il "rosso medio" è 120 nelle foto valid e 45 nelle invalid, con bassa variazione, avrà un alto score
+
+### Categorie di Features
+
+Il sistema classifica automaticamente i dettagli in categorie:
+
+| Categoria | Emoji | Cosa Include |
+|-----------|-------|--------------|
+| **Colore** | 🎨 | RGB, HSV, luminosità, saturazione, tonalità |
+| **Texture** | 🔲 | Pattern, ruvidezza, omogeneità, contrasto locale |
+| **Forme** | 📐 | Bordi, contorni, perimetri, circolarità |
+| **Frequenze** | 📡 | FFT, spettro, componenti frequenziali |
+| **Istogrammi** | 📊 | Distribuzione valori, bin di colore |
+| **Distribuzione** | 🗺️ | Regioni spaziali, zone, quadranti |
+| **Statistiche** | 📈 | Media, deviazione standard, varianza, entropy |
+| **Momenti** | 🔄 | Momenti di Hu, invarianti geometrici |
+| **Generale** | 📋 | Features non classificate |
+
+### Categorizzazione Intelligente
+
+Il sistema usa pattern matching per classificare i nomi tecnici:
+- Analizza nomi nested come `color_analysis.rgb.mean`
+- Supporta abbreviazioni (`sat` → saturazione, `lum` → luminosità)
+- Se non trova match, inferisce dalla struttura del nome
+- Fallback a categoria "Generale" invece di "Altro"
+
+### Come Leggere la Tabella Features
+
+Ogni riga mostra:
+1. **Dettaglio**: Nome tecnico (es. `rgb_histogram.red.mean`)
+2. **Tipo**: Categoria (Colore, Texture, ecc.)
+3. **Valid (media)**: Valore medio nelle foto VALID
+4. **Invalid (media)**: Valore medio nelle foto INVALID
+5. **Differenza**: Quanto sono diversi i valori
+6. **Utilità**: Score finale (quanto serve per distinguere)
+
+**Colori nelle righe:**
+- 🟢 Verde (> 1.5): Molto utile
+- 🔵 Blu (0.8-1.5): Abbastanza utile
+- 🟡 Giallo (0.5-0.8): Poco utile
+- ⚪ Bianco (< 0.5): Non utile
+
+---
+
 ## 🏗️ Project Structure
 
 ## 🏗️ Architettura

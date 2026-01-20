@@ -601,69 +601,60 @@ export default function TrainingDashboard() {
   function getFeatureCategory(name) {
     const lower = name.toLowerCase()
 
-    // Debug: log feature names to see actual patterns
-    if (Math.random() < 0.01) { // Log only 1% to avoid spam
-      console.log('Feature name:', name)
-    }
+    // Analizza anche i path per nested features (es: "color_analysis.rgb.mean")
+    const parts = lower.split('.')
+    const joined = parts.join(' ')
 
-    // Colore e luminosità
-    if (lower.includes('color') || lower.includes('rgb') || lower.includes('hsv') ||
-        lower.includes('hue') || lower.includes('saturation') || lower.includes('brightness') ||
-        lower.includes('_r_') || lower.includes('_g_') || lower.includes('_b_') ||
-        lower.includes('luminance') || lower.includes('chroma') ||
-        lower.includes('red') || lower.includes('green') || lower.includes('blue')) {
+    // Colore e luminosità (più patterns)
+    if (joined.match(/color|rgb|hsv|hue|sat|bright|lum|chr|red|green|blue|_r_|_g_|_b_|_h_|_s_|_v_/)) {
       return '🎨 Colore'
     }
 
     // Texture e pattern
-    if (lower.includes('texture') || lower.includes('glcm') || lower.includes('lbp') ||
-        lower.includes('gabor') || lower.includes('haralick') || lower.includes('pattern') ||
-        lower.includes('homogeneity') || lower.includes('dissimilarity') ||
-        lower.includes('correlation') || lower.includes('asm') || lower.includes('contrast')) {
+    if (joined.match(/text|glcm|lbp|gabor|haral|patt|homog|dissim|correl|asm|contrast|rough/)) {
       return '🔲 Texture'
     }
 
     // Bordi e forme
-    if (lower.includes('edge') || lower.includes('gradient') || lower.includes('contour') ||
-        lower.includes('sobel') || lower.includes('canny') || lower.includes('laplacian') ||
-        lower.includes('shape') || lower.includes('perimeter') || lower.includes('circularity') ||
-        lower.includes('solidity') || lower.includes('bbox')) {
-      return '📐 Forme & Bordi'
+    if (joined.match(/edge|grad|cont|sobel|cann|lapl|shape|perim|circ|solid|bbox|bound/)) {
+      return '📐 Forme'
     }
 
     // Frequenze e FFT
-    if (lower.includes('fft') || lower.includes('frequency') || lower.includes('fourier') ||
-        lower.includes('spectrum') || lower.includes('magnitude') || lower.includes('phase')) {
+    if (joined.match(/fft|freq|fourier|spect|magn|phase/)) {
       return '📡 Frequenze'
     }
 
     // Istogrammi
-    if (lower.includes('hist') || lower.includes('histogram') || lower.includes('bin')) {
+    if (joined.match(/hist|bin/)) {
       return '📊 Istogrammi'
     }
 
     // Distribuzione spaziale
-    if (lower.includes('spatial') || lower.includes('zone') || lower.includes('quadrant') ||
-        lower.includes('region') || lower.includes('segment')) {
+    if (joined.match(/spatial|zone|quad|region|segment|area|block/)) {
       return '🗺️ Distribuzione'
     }
 
     // Statistiche base - MUST BE AFTER OTHER CATEGORIES (more generic)
-    if (lower.includes('mean') || lower.includes('std') || lower.includes('variance') ||
-        lower.includes('median') || lower.includes('min') || lower.includes('max') ||
-        lower.includes('range') || lower.includes('skewness') || lower.includes('kurtosis') ||
-        lower.includes('entropy') || lower.includes('percentile')) {
+    if (joined.match(/mean|avg|std|var|med|min|max|range|skew|kurt|entrop|percent/)) {
       return '📈 Statistiche'
     }
 
-    // Momenti di Hu
-    if (lower.includes('moment') || lower.includes('hu_')) {
+    // Momenti
+    if (joined.match(/moment|hu_|mu_/)) {
       return '🔄 Momenti'
     }
 
-    // Log uncategorized features
-    console.log('⚠️ Uncategorized feature:', name)
-    return '📋 Altro'
+    // Default: prova a inferire dalla struttura del nome
+    if (parts.length > 1) {
+      // Se è un path profondo, usa il primo segmento come categoria
+      const prefix = parts[0]
+      if (prefix.length > 2) {
+        return '📊 ' + prefix.charAt(0).toUpperCase() + prefix.slice(1, 8)
+      }
+    }
+
+    return '📋 Generale'
   }
 
   function groupByCategory(features) {
@@ -710,10 +701,22 @@ export default function TrainingDashboard() {
       <div className="bg-white rounded-2xl shadow-xl border-2 border-gray-200 p-8 mb-8">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">📊 Tabella Completa Features</h2>
+            <h2 className="text-2xl font-bold text-gray-900">📊 Tutti i Dettagli Analizzati</h2>
             <p className="text-gray-600 mt-1">
-              {allFeatures.length} features totali • {filtered.length} visualizzate
+              {allFeatures.length} dettagli totali • {filtered.length} visualizzati
             </p>
+          </div>
+        </div>
+
+        {/* Help Section */}
+        <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 mb-6">
+          <h3 className="font-bold text-blue-900 mb-2">💡 Come Leggere Questa Tabella</h3>
+          <div className="text-sm text-blue-800 space-y-1">
+            <p>• <span className="font-semibold">Dettaglio</span>: Nome tecnico della caratteristica analizzata</p>
+            <p>• <span className="font-semibold">Tipo</span>: Categoria (Colore, Texture, Forme, ecc.)</p>
+            <p>• <span className="font-semibold">Valid/Invalid (media)</span>: Valore medio di questo dettaglio nelle foto valide vs non valide</p>
+            <p>• <span className="font-semibold">Differenza</span>: Quanto sono diversi i valori tra foto valide e non valide</p>
+            <p>• <span className="font-semibold">Utilità (Score)</span>: Quanto è utile questo dettaglio per distinguere le foto (più alto = più utile)</p>
           </div>
         </div>
 
@@ -753,8 +756,8 @@ export default function TrainingDashboard() {
               onChange={(e) => setSortBy(e.target.value)}
               className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
             >
-              <option value="score">Importanza (Score)</option>
-              <option value="difference">Differenza (Abs)</option>
+              <option value="score">Utilità (più utile prima)</option>
+              <option value="difference">Differenza (più diverso prima)</option>
               <option value="name">Nome (A-Z)</option>
             </select>
           </div>
@@ -763,28 +766,32 @@ export default function TrainingDashboard() {
         {/* Stats Summary */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           <div className="bg-green-50 rounded-lg p-3 border border-green-200">
-            <div className="text-xs text-green-700">Score {'>'} 1.5</div>
+            <div className="text-xs text-green-700">Molto Utile</div>
             <div className="text-2xl font-bold text-green-900">
               {filtered.filter(f => f.separationScore > 1.5).length}
             </div>
+            <div className="text-xs text-green-600 mt-1">{'>'} 1.5</div>
           </div>
           <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-            <div className="text-xs text-blue-700">Score 0.8-1.5</div>
+            <div className="text-xs text-blue-700">Abbastanza Utile</div>
             <div className="text-2xl font-bold text-blue-900">
               {filtered.filter(f => f.separationScore > 0.8 && f.separationScore <= 1.5).length}
             </div>
+            <div className="text-xs text-blue-600 mt-1">0.8-1.5</div>
           </div>
           <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-200">
-            <div className="text-xs text-yellow-700">Score 0.5-0.8</div>
+            <div className="text-xs text-yellow-700">Poco Utile</div>
             <div className="text-2xl font-bold text-yellow-900">
               {filtered.filter(f => f.separationScore > 0.5 && f.separationScore <= 0.8).length}
             </div>
+            <div className="text-xs text-yellow-600 mt-1">0.5-0.8</div>
           </div>
           <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-            <div className="text-xs text-gray-700">Score {'<'} 0.5</div>
+            <div className="text-xs text-gray-700">Non Utile</div>
             <div className="text-2xl font-bold text-gray-900">
               {filtered.filter(f => f.separationScore <= 0.5).length}
             </div>
+            <div className="text-xs text-gray-600 mt-1">{'<'} 0.5</div>
           </div>
         </div>
 
@@ -794,12 +801,12 @@ export default function TrainingDashboard() {
             <thead className="bg-gray-100 border-b-2 border-gray-300">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">#</th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Feature</th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Categoria</th>
-                <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Valid (avg)</th>
-                <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Invalid (avg)</th>
-                <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Diff</th>
-                <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Score</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Dettaglio</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Tipo</th>
+                <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Valid (media)</th>
+                <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Invalid (media)</th>
+                <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Differenza</th>
+                <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Utilità</th>
               </tr>
             </thead>
             <tbody>
@@ -1502,16 +1509,32 @@ export default function TrainingDashboard() {
 
             {/* Summary Box - Cosa sta imparando */}
             <div className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl shadow-xl p-8 text-white mb-8">
-              <h3 className="text-3xl font-bold mb-6">🧠 In Sintesi: Cosa Sta Imparando</h3>
+              <h3 className="text-3xl font-bold mb-6">🧠 Come Funziona l'Analisi</h3>
               <div className="text-lg space-y-5 leading-relaxed">
+                <div className="bg-white/10 rounded-xl p-5 mb-4">
+                  <p className="text-sm font-semibold mb-2">💡 Cosa significa questo numero?</p>
+                  <p className="text-base">
+                    <span className="font-bold text-yellow-300">{insights.totalFeatures}</span> = Numero di dettagli tecnici estratti da ogni foto
+                    <br/>
+                    <span className="text-sm opacity-90">(colori, forme, texture, luminosità, contrasti, ecc.)</span>
+                  </p>
+                </div>
+
                 <p className="text-xl">
-                  ✨ L'AI ha analizzato <span className="font-bold text-yellow-300">{insights.totalFeatures}</span> caratteristiche diverse dalle tue foto
+                  🎯 Di questi, <span className="font-bold text-yellow-300">{insights.topFeatures.filter(f => f.separationScore > 1.5).length} sono molto utili</span> e <span className="font-bold text-yellow-300">{insights.topFeatures.filter(f => f.separationScore > 0.8 && f.separationScore <= 1.5).length} abbastanza utili</span> per distinguere foto VALIDE da NON VALIDE
                 </p>
-                <p className="text-xl">
-                  🎯 Ha trovato <span className="font-bold text-yellow-300">{insights.topFeatures.filter(f => f.separationScore > 1.5).length}</span> caratteristiche cruciali e <span className="font-bold text-yellow-300">{insights.topFeatures.filter(f => f.separationScore > 0.8 && f.separationScore <= 1.5).length}</span> importanti che distinguono le foto
-                </p>
+
+                <div className="bg-white/10 rounded-xl p-5 mb-4">
+                  <p className="text-sm font-semibold mb-3">💡 Cosa significa "utile"?</p>
+                  <div className="space-y-2 text-base">
+                    <p>• <span className="font-bold text-green-300">Molto utile</span>: questo dettaglio è diverso tra foto valide e non valide (score {'>'} 1.5)</p>
+                    <p>• <span className="font-bold text-blue-300">Abbastanza utile</span>: aiuta un po' a distinguerle (score 0.8-1.5)</p>
+                    <p>• <span className="font-bold text-gray-300">Poco utile</span>: non serve molto (score {'<'} 0.8)</p>
+                  </div>
+                </div>
+
                 <div className="bg-white/20 rounded-xl p-5 space-y-3">
-                  <div className="font-bold text-xl mb-3">📊 Cosa sta guardando:</div>
+                  <div className="font-bold text-xl mb-3">📊 Tipi di dettagli analizzati:</div>
                   {Object.entries(insights.byCategory).map(([category, features]) => {
                     const strongCount = features.filter(f => f.separationScore > 1.5).length
                     const isImportant = strongCount > 0
@@ -1520,8 +1543,8 @@ export default function TrainingDashboard() {
                         <span className="text-2xl">{category.split(' ')[0]}</span>
                         <span className="flex-1">{category.includes(' ') ? category.split(' ').slice(1).join(' ') : category}</span>
                         {isImportant && (
-                          <span className="px-3 py-1 bg-yellow-400 text-gray-900 rounded-full text-sm font-bold">
-                            {strongCount} {strongCount === 1 ? 'aspetto cruciale' : 'aspetti cruciali'}
+                          <span className="px-3 py-1 bg-green-400 text-gray-900 rounded-full text-sm font-bold">
+                            {strongCount} {strongCount === 1 ? 'utile' : 'utili'}
                           </span>
                         )}
                       </div>
@@ -1529,47 +1552,47 @@ export default function TrainingDashboard() {
                   })}
                 </div>
                 <p className="text-xl border-t border-white/30 pt-4">
-                  🔬 L'AI sta imparando da sola quali dettagli visivi distinguono le foto buone da quelle sbagliate
+                  🔬 L'AI impara automaticamente quali dettagli distinguono le foto buone da quelle sbagliate
                 </p>
                 <p className="text-xl">
-                  🚀 Più foto carichi, più diventa brava a riconoscerle!
+                  🚀 Più foto carichi, più diventa precisa!
                 </p>
               </div>
             </div>
 
             {/* Metrics Dashboard */}
             <div className="bg-white rounded-2xl shadow-xl border-2 border-gray-200 p-8 mb-8">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">📈 Metriche e Statistiche</h2>
-              
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">📈 Riepilogo Veloce</h2>
+
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border-2 border-blue-200">
-                  <div className="text-sm text-blue-700 font-medium mb-1">Feature Totali</div>
+                  <div className="text-sm text-blue-700 font-medium mb-1">Dettagli Analizzati</div>
                   <div className="text-3xl font-bold text-blue-900">{insights.totalFeatures}</div>
-                  <div className="text-xs text-blue-600 mt-1">Caratteristiche estratte</div>
+                  <div className="text-xs text-blue-600 mt-1">Per ogni foto</div>
                 </div>
-                
+
                 <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border-2 border-green-200">
-                  <div className="text-sm text-green-700 font-medium mb-1">Feature Forti</div>
+                  <div className="text-sm text-green-700 font-medium mb-1">Molto Utili</div>
                   <div className="text-3xl font-bold text-green-900">
                     {insights.topFeatures.filter(f => f.separationScore > 1.5).length}
                   </div>
-                  <div className="text-xs text-green-600 mt-1">Score {'>'} 1.5</div>
+                  <div className="text-xs text-green-600 mt-1">Distinguono bene</div>
                 </div>
-                
+
                 <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-xl p-4 border-2 border-yellow-200">
-                  <div className="text-sm text-yellow-700 font-medium mb-1">Feature Moderate</div>
+                  <div className="text-sm text-yellow-700 font-medium mb-1">Abbastanza Utili</div>
                   <div className="text-3xl font-bold text-yellow-900">
                     {insights.topFeatures.filter(f => f.separationScore > 0.8 && f.separationScore <= 1.5).length}
                   </div>
-                  <div className="text-xs text-yellow-600 mt-1">Score 0.8-1.5</div>
+                  <div className="text-xs text-yellow-600 mt-1">Aiutano a distinguere</div>
                 </div>
-                
+
                 <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border-2 border-purple-200">
-                  <div className="text-sm text-purple-700 font-medium mb-1">Affidabilità Media</div>
+                  <div className="text-sm text-purple-700 font-medium mb-1">Qualità Media</div>
                   <div className="text-3xl font-bold text-purple-900">
                     {(insights.topFeatures.slice(0, 5).reduce((acc, f) => acc + f.separationScore, 0) / 5).toFixed(1)}
                   </div>
-                  <div className="text-xs text-purple-600 mt-1">Top 5 features</div>
+                  <div className="text-xs text-purple-600 mt-1">Dei 5 migliori dettagli</div>
                 </div>
               </div>
 
