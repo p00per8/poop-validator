@@ -310,48 +310,30 @@ export default function TrainingApp() {
       {!mode && !isProcessing && (
         <div className="max-w-4xl mx-auto grid grid-cols-2 gap-4 mb-6">
           {/* Valid Photo Button */}
-          <div>
-            <button
-              onClick={() => setMode('valid')}
-              disabled={!stats.canUpload || stats.valid >= 50}
-              className={`w-full p-6 rounded-lg shadow-md font-semibold text-lg transition-all ${
-                stats.canUpload && stats.valid < 50
-                  ? 'bg-green-500 text-white hover:bg-green-600 active:scale-95'
-                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              }`}
-            >
-              ✅ Foto VALIDA
-            </button>
-            <div className="mt-2 text-center">
-              <span className={`text-sm font-medium ${
-                stats.valid >= 50 ? 'text-green-600' : 'text-gray-600'
-              }`}>
-                {stats.valid}/50 {stats.valid >= 50 ? '✓ Completato!' : ''}
-              </span>
-            </div>
-          </div>
+          <button
+            onClick={() => setMode('valid')}
+            disabled={!stats.canUpload || stats.valid >= 50}
+            className={`p-6 rounded-lg shadow-md font-semibold text-lg transition-all ${
+              stats.canUpload && stats.valid < 50
+                ? 'bg-green-500 text-white hover:bg-green-600 active:scale-95'
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+          >
+            ✅ Foto VALIDA
+          </button>
 
           {/* Invalid Photo Button */}
-          <div>
-            <button
-              onClick={() => setMode('invalid')}
-              disabled={!stats.canUpload || stats.invalid >= 50}
-              className={`w-full p-6 rounded-lg shadow-md font-semibold text-lg transition-all ${
-                stats.canUpload && stats.invalid < 50
-                  ? 'bg-red-500 text-white hover:bg-red-600 active:scale-95'
-                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              }`}
-            >
-              ❌ Foto NON VALIDA
-            </button>
-            <div className="mt-2 text-center">
-              <span className={`text-sm font-medium ${
-                stats.invalid >= 50 ? 'text-green-600' : 'text-gray-600'
-              }`}>
-                {stats.invalid}/50 {stats.invalid >= 50 ? '✓ Completato!' : ''}
-              </span>
-            </div>
-          </div>
+          <button
+            onClick={() => setMode('invalid')}
+            disabled={!stats.canUpload || stats.invalid >= 50}
+            className={`p-6 rounded-lg shadow-md font-semibold text-lg transition-all ${
+              stats.canUpload && stats.invalid < 50
+                ? 'bg-red-500 text-white hover:bg-red-600 active:scale-95'
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+          >
+            ❌ Foto NON VALIDA
+          </button>
         </div>
       )}
 
