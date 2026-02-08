@@ -21,6 +21,8 @@ export default function TrainingApp() {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [message, setMessage] = useState(null)
   const [statsLoading, setStatsLoading] = useState(true)
+  const [isTraining, setIsTraining] = useState(false)
+  const [trainingProgress, setTrainingProgress] = useState(null)
 
   useEffect(() => {
     const savedExpiry = localStorage.getItem('training_session_expiry')
@@ -60,6 +62,16 @@ export default function TrainingApp() {
       loadStats()
     }
   }, [isAuthenticated])
+
+  useEffect(() => {
+    // Cleanup polling on unmount
+    return () => {
+      if (isTraining) {
+        setIsTraining(false)
+        setTrainingProgress(null)
+      }
+    }
+  }, [])
 
   const handleLogin = (e) => {
     e.preventDefault()
@@ -144,6 +156,95 @@ export default function TrainingApp() {
     setTimeout(() => {
       setMessage(null)
     }, duration)
+  }
+
+  const handleTrainModel = async () => {
+    const confirmed = confirm(
+      `🧠 Stai per avviare il training del modello con ${stats.total} foto.\n\n` +
+      `Questo processo può richiedere diversi minuti.\n\n` +
+      `Continuare?`
+    )
+
+    if (!confirmed) return
+
+    setIsTraining(true)
+    setTrainingProgress({ progress: 0, status: 'starting' })
+    showMessage('info', '🚀 Avvio training...', 5000)
+
+    try {
+      const cloudRunUrl = process.env.NEXT_PUBLIC_CLOUD_RUN_URL
+      const response = await fetch(`${cloudRunUrl}/train-model`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ min_photos: 100 })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Training failed to start')
+      }
+
+      const data = await response.json()
+
+      if (data.success) {
+        showMessage('success', '✅ Training avviato!', 5000)
+        pollTrainingStatus()
+      } else {
+        throw new Error(data.error || 'Failed to start training')
+      }
+
+    } catch (error) {
+      console.error('Training error:', error)
+      showMessage('error', `❌ Errore: ${error.message}`)
+      setIsTraining(false)
+      setTrainingProgress(null)
+    }
+  }
+
+  const pollTrainingStatus = () => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const cloudRunUrl = process.env.NEXT_PUBLIC_CLOUD_RUN_URL
+        const response = await fetch(`${cloudRunUrl}/training-status/v1.0`)
+
+        if (!response.ok) {
+          throw new Error('Failed to get training status')
+        }
+
+        const data = await response.json()
+
+        if (data.status === 'completed') {
+          clearInterval(pollInterval)
+          setIsTraining(false)
+          setTrainingProgress(null)
+
+          showMessage(
+            'success',
+            `🎉 Training completato! Accuracy: ${(data.accuracy * 100).toFixed(1)}%`,
+            10000
+          )
+
+          await loadStats()
+        } else if (data.status === 'in_progress') {
+          setTrainingProgress({
+            progress: data.progress || 50,
+            status: data.message || 'Training in corso...'
+          })
+        } else if (data.status === 'failed') {
+          clearInterval(pollInterval)
+          setIsTraining(false)
+          setTrainingProgress(null)
+          showMessage('error', `❌ Training fallito: ${data.error}`)
+        }
+
+      } catch (error) {
+        console.error('Polling error:', error)
+        // Non stoppo il polling per errori temporanei di rete
+      }
+    }, 5000) // Poll ogni 5 secondi
+
+    // Cleanup function stored in component
+    return () => clearInterval(pollInterval)
   }
 
   const handlePhotoCapture = async (blob, isValid) => {
@@ -306,17 +407,55 @@ export default function TrainingApp() {
         </div>
       )}
 
+      {/* Training Button */}
+      {!statsLoading && stats.total >= 100 && !isTraining && (
+        <div className="max-w-4xl mx-auto mb-6">
+          <button
+            onClick={handleTrainModel}
+            className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-8 py-4 rounded-lg font-bold shadow-lg hover:opacity-90 transition-opacity active:scale-95"
+          >
+            <div className="text-2xl mb-1">🧠 TRAIN MODEL v1.0</div>
+            <div className="text-sm opacity-90">({stats.total} foto pronte)</div>
+          </button>
+        </div>
+      )}
+
+      {/* Training Progress Widget */}
+      {isTraining && trainingProgress && (
+        <div className="max-w-4xl mx-auto mb-6">
+          <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-6 shadow-lg">
+            <div className="text-center mb-4">
+              <div className="text-2xl font-bold text-yellow-800 mb-2">
+                🔄 Training in corso... {trainingProgress.progress}%
+              </div>
+              <p className="text-sm text-yellow-700">{trainingProgress.status}</p>
+            </div>
+
+            <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+              <div
+                className="bg-gradient-to-r from-purple-600 to-indigo-600 h-4 rounded-full transition-all duration-500"
+                style={{ width: `${trainingProgress.progress}%` }}
+              />
+            </div>
+
+            <p className="text-center text-sm text-red-600 font-medium mt-4">
+              ⚠️ Non chiudere questa pagina durante il training
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Camera Buttons */}
       {!mode && !isProcessing && (
         <div className="max-w-4xl mx-auto grid grid-cols-2 gap-4 mb-6">
           {/* Valid Photo Button */}
           <button
             onClick={() => setMode('valid')}
-            disabled={!stats.canUpload || stats.valid >= 50}
+            disabled={!stats.canUpload || stats.valid >= 50 || isTraining}
             className={`p-6 rounded-lg shadow-md font-semibold text-lg transition-all ${
-              stats.canUpload && stats.valid < 50
+              stats.canUpload && stats.valid < 50 && !isTraining
                 ? 'bg-green-500 text-white hover:bg-green-600 active:scale-95'
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed opacity-50'
             }`}
           >
             ✅ Foto VALIDA
@@ -325,11 +464,11 @@ export default function TrainingApp() {
           {/* Invalid Photo Button */}
           <button
             onClick={() => setMode('invalid')}
-            disabled={!stats.canUpload || stats.invalid >= 50}
+            disabled={!stats.canUpload || stats.invalid >= 50 || isTraining}
             className={`p-6 rounded-lg shadow-md font-semibold text-lg transition-all ${
-              stats.canUpload && stats.invalid < 50
+              stats.canUpload && stats.invalid < 50 && !isTraining
                 ? 'bg-red-500 text-white hover:bg-red-600 active:scale-95'
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed opacity-50'
             }`}
           >
             ❌ Foto NON VALIDA

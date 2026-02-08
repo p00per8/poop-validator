@@ -1,5 +1,4 @@
 import { useState, useRef } from 'react'
-import { validatePhoto } from '../../shared/lib/tfjs-model'
 
 export default function Validator({ photoBlob, onReset }) {
   const [result, setResult] = useState(null)
@@ -7,17 +6,45 @@ export default function Validator({ photoBlob, onReset }) {
   const imageRef = useRef(null)
 
   const handleValidate = async () => {
-    if (!photoBlob || !imageRef.current) return
+    if (!photoBlob) return
 
     setIsValidating(true)
     setResult(null)
 
     try {
-      // Small delay for UX (shows loading state)
-      await new Promise(resolve => setTimeout(resolve, 500))
+      const cloudRunUrl = process.env.NEXT_PUBLIC_CLOUD_RUN_URL
 
-      const validationResult = await validatePhoto(imageRef.current)
-      setResult(validationResult)
+      if (!cloudRunUrl) {
+        throw new Error('Cloud Run URL not configured')
+      }
+
+      const formData = new FormData()
+      formData.append('photo', photoBlob, 'photo.jpg')
+
+      const response = await fetch(`${cloudRunUrl}/validate-photo`, {
+        method: 'POST',
+        body: formData
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Validation failed')
+      }
+
+      const data = await response.json()
+
+      // Transform Cloud Run response to component format
+      setResult({
+        valid: data.valid,
+        confidence: Math.round(data.confidence * 100),
+        message: data.valid
+          ? '✅ Foto valida e conforme ai requisiti'
+          : data.reason || 'Foto non conforme ai requisiti',
+        category: data.valid ? 'success' : 'error',
+        modelVersion: data.model_version,
+        suspiciousFeatures: data.suspicious_features || []
+      })
+
     } catch (error) {
       console.error('Validation error:', error)
       setResult({
@@ -94,9 +121,17 @@ export default function Validator({ photoBlob, onReset }) {
           
           <div className="inline-block bg-white bg-opacity-50 px-4 py-2 rounded-lg">
             <p className="text-sm font-medium">
-              Confidence: {result.confidence}%
+              Confidenza: {result.confidence}%
             </p>
           </div>
+
+          {result.modelVersion && (
+            <div className="mt-2">
+              <p className="text-xs text-gray-700 opacity-75">
+                Modello: {result.modelVersion}
+              </p>
+            </div>
+          )}
 
           {result.valid && (
             <div className="mt-6 p-4 bg-white bg-opacity-50 rounded-lg text-left">
@@ -109,14 +144,21 @@ export default function Validator({ photoBlob, onReset }) {
             </div>
           )}
 
-          {!result.valid && result.category === 'warning' && (
+          {!result.valid && result.category !== 'error' && result.message && (
             <div className="mt-6 p-4 bg-white bg-opacity-50 rounded-lg text-left">
-              <p className="text-sm font-medium mb-2">💡 Suggerimenti:</p>
-              <ul className="text-sm space-y-1">
-                <li>• Migliora l'illuminazione</li>
-                <li>• Avvicina la camera</li>
-                <li>• Riduci ombre e riflessi</li>
-              </ul>
+              <p className="text-sm font-medium mb-2">⚠️ Motivo:</p>
+              <p className="text-sm">{result.message}</p>
+
+              {result.suspiciousFeatures && result.suspiciousFeatures.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs font-medium mb-1">Caratteristiche sospette:</p>
+                  <ul className="text-xs space-y-1">
+                    {result.suspiciousFeatures.slice(0, 3).map((feature, idx) => (
+                      <li key={idx}>• {feature}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </div>
