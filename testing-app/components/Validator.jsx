@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 export default function Validator({ photoBlob, onReset }) {
   const [result, setResult] = useState(null)
@@ -57,6 +57,14 @@ export default function Validator({ photoBlob, onReset }) {
       setIsValidating(false)
     }
   }
+
+  // Auto-validate when photo is captured
+  useEffect(() => {
+    if (photoBlob) {
+      handleValidate()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photoBlob])
 
   // Auto-validate on mount
   useState(() => {
