@@ -250,51 +250,74 @@ export default function TrainingApp() {
   const handlePhotoCapture = async (blob, isValid) => {
     setIsProcessing(true)
     setUploadProgress(0)
-    
+
     try {
+      console.log('🔵 START upload', { blobSize: blob?.size, isValid })
+
       // Step 1: Compress (20%)
       setUploadProgress(20)
       showMessage('info', '📦 Compressione...')
       const compressedBlob = await compressForTraining(blob)
-      
+      console.log('🔵 Compressed', { size: compressedBlob?.size })
+
       // Step 2: Cloud Run fa TUTTO (upload + features + DB)
       setUploadProgress(40)
       showMessage('info', '☁️ Upload e estrazione features...')
-      
+
       // Generate unique filename: label_timestamp_randomId.jpg
       const timestamp = Date.now()
       const randomId = Math.random().toString(36).substring(2, 9)
       const label = isValid ? 'valid' : 'invalid'
       const uniqueFilename = `${label}_${timestamp}_${randomId}.jpg`
+      console.log('🔵 Filename', uniqueFilename)
 
       const formData = new FormData()
       formData.append('photo', compressedBlob, uniqueFilename)
       formData.append('label', label)
       formData.append('uploaded_by', 'training-app')
-      
+
       const cloudRunUrl = process.env.NEXT_PUBLIC_CLOUD_RUN_URL
+      console.log('🔵 URL', cloudRunUrl)
+
+      if (!cloudRunUrl) {
+        throw new Error('Cloud Run URL non configurato')
+      }
+
+      console.log('🔵 Fetching...', `${cloudRunUrl}/upload-training-photo`)
       const response = await fetch(`${cloudRunUrl}/upload-training-photo`, {
         method: 'POST',
         body: formData
       })
-      
+
+      console.log('🔵 Response', response.status, response.statusText)
+
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Upload failed')
+        let errorMsg = `HTTP ${response.status}`
+        try {
+          const errorData = await response.json()
+          errorMsg = errorData.error || errorMsg
+          console.error('🔴 Error data', errorData)
+        } catch (e) {
+          console.error('🔴 Failed to parse error', e)
+        }
+        throw new Error(errorMsg)
       }
-      
+
       const data = await response.json()
-      
+      console.log('🔵 Success', data)
+
       // Step 3: Refresh stats
       setUploadProgress(100)
       await loadStats()
-      
+
       showMessage('success', `✅ Foto caricata con ${data.features_extracted} features!`)
       setMode(null)
-      
+
     } catch (error) {
-      console.error('Upload error:', error)
-      showMessage('error', `❌ Errore: ${error.message}`)
+      console.error('🔴 Upload error:', error)
+      // Mostra errore dettagliato all'utente
+      const errorMsg = error.message || 'Unknown error'
+      showMessage('error', `❌ ${errorMsg}`, 8000)
     } finally {
       setIsProcessing(false)
       setUploadProgress(0)
