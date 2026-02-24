@@ -114,10 +114,10 @@ export default function TrainingApp() {
   const loadStats = async () => {
     setStatsLoading(true)
     try {
-      // Query con image_url per leggere label dal filename
+      // Query con image_url e used_in_training per distinguere foto nuove da già usate
       const { data: photos, error } = await supabase
         .from('training_photos')
-        .select('label, image_url')
+        .select('label, image_url, used_in_training')
 
       if (error) throw error
 
@@ -131,10 +131,18 @@ export default function TrainingApp() {
       const invalid = photosWithLabels.filter(p => p.effectiveLabel === 'invalid').length
       const total = photos.length
 
+      // Foto non ancora usate in training (per il prossimo round)
+      const unusedValid = photosWithLabels.filter(p => p.effectiveLabel === 'valid' && !p.used_in_training).length
+      const unusedInvalid = photosWithLabels.filter(p => p.effectiveLabel === 'invalid' && !p.used_in_training).length
+      const unusedTotal = photos.filter(p => !p.used_in_training).length
+
       setStats({
         valid,
         invalid,
         total,
+        unusedValid,
+        unusedInvalid,
+        unusedTotal,
         canUpload: true
       })
     } catch (error) {
@@ -144,6 +152,9 @@ export default function TrainingApp() {
         valid: 0,
         invalid: 0,
         total: 0,
+        unusedValid: 0,
+        unusedInvalid: 0,
+        unusedTotal: 0,
         canUpload: true
       })
     } finally {
@@ -160,7 +171,7 @@ export default function TrainingApp() {
 
   const handleTrainModel = async () => {
     const confirmed = confirm(
-      `🧠 Stai per avviare il training del modello con ${stats.total} foto.\n\n` +
+      `🧠 Stai per avviare il training del modello con ${stats.unusedTotal} foto nuove.\n\n` +
       `Questo processo può richiedere diversi minuti.\n\n` +
       `Continuare?`
     )
@@ -404,25 +415,34 @@ export default function TrainingApp() {
         ) : (
           <>
             <div className="bg-white rounded-lg shadow-md p-4 text-center">
-              <div className="text-3xl font-bold text-green-600">{stats.valid}</div>
-              <div className="text-sm text-gray-600 mt-1">✅ Foto Valide</div>
+              <div className="text-3xl font-bold text-green-600">{stats.unusedValid}</div>
+              <div className="text-sm text-gray-600 mt-1">✅ Valide (nuove)</div>
+              {stats.valid > stats.unusedValid && (
+                <div className="text-xs text-gray-400 mt-0.5">{stats.valid} totali</div>
+              )}
             </div>
 
             <div className="bg-white rounded-lg shadow-md p-4 text-center">
-              <div className="text-3xl font-bold text-red-600">{stats.invalid}</div>
-              <div className="text-sm text-gray-600 mt-1">❌ Foto Non Valide</div>
+              <div className="text-3xl font-bold text-red-600">{stats.unusedInvalid}</div>
+              <div className="text-sm text-gray-600 mt-1">❌ Non Valide (nuove)</div>
+              {stats.invalid > stats.unusedInvalid && (
+                <div className="text-xs text-gray-400 mt-0.5">{stats.invalid} totali</div>
+              )}
             </div>
 
             <div className="bg-white rounded-lg shadow-md p-4 text-center">
-              <div className="text-3xl font-bold text-blue-600">{stats.total}</div>
-              <div className="text-sm text-gray-600 mt-1">📊 Totale</div>
+              <div className="text-3xl font-bold text-blue-600">{stats.unusedTotal}</div>
+              <div className="text-sm text-gray-600 mt-1">📊 Nuove</div>
+              {stats.total > stats.unusedTotal && (
+                <div className="text-xs text-gray-400 mt-0.5">{stats.total} totali</div>
+              )}
             </div>
           </>
         )}
       </div>
 
       {/* Training Ready Banner */}
-      {!statsLoading && stats.valid >= 50 && stats.invalid >= 50 && (
+      {!statsLoading && stats.unusedValid >= 50 && stats.unusedInvalid >= 50 && (
         <div className="max-w-4xl mx-auto mb-6">
           <div className="bg-gradient-to-r from-green-500 to-blue-500 text-white rounded-lg shadow-lg p-6 text-center">
             <div className="text-4xl mb-2">🎉</div>
@@ -434,14 +454,14 @@ export default function TrainingApp() {
       )}
 
       {/* Training Button */}
-      {!statsLoading && stats.total >= 100 && !isTraining && (
+      {!statsLoading && stats.unusedTotal >= 100 && !isTraining && (
         <div className="max-w-4xl mx-auto mb-6">
           <button
             onClick={handleTrainModel}
             className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-8 py-4 rounded-lg font-bold shadow-lg hover:opacity-90 transition-opacity active:scale-95"
           >
-            <div className="text-2xl mb-1">🧠 TRAIN MODEL v1.0</div>
-            <div className="text-sm opacity-90">({stats.total} foto pronte)</div>
+            <div className="text-2xl mb-1">🧠 TRAIN NUOVO MODELLO</div>
+            <div className="text-sm opacity-90">({stats.unusedTotal} foto nuove pronte)</div>
           </button>
         </div>
       )}
@@ -477,9 +497,9 @@ export default function TrainingApp() {
           {/* Valid Photo Button */}
           <button
             onClick={() => setMode('valid')}
-            disabled={!stats.canUpload || stats.valid >= 50 || isTraining}
+            disabled={!stats.canUpload || stats.unusedValid >= 50 || isTraining}
             className={`p-6 rounded-lg shadow-md font-semibold text-lg transition-all ${
-              stats.canUpload && stats.valid < 50 && !isTraining
+              stats.canUpload && stats.unusedValid < 50 && !isTraining
                 ? 'bg-green-500 text-white hover:bg-green-600 active:scale-95'
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed opacity-50'
             }`}
@@ -490,9 +510,9 @@ export default function TrainingApp() {
           {/* Invalid Photo Button */}
           <button
             onClick={() => setMode('invalid')}
-            disabled={!stats.canUpload || stats.invalid >= 50 || isTraining}
+            disabled={!stats.canUpload || stats.unusedInvalid >= 50 || isTraining}
             className={`p-6 rounded-lg shadow-md font-semibold text-lg transition-all ${
-              stats.canUpload && stats.invalid < 50 && !isTraining
+              stats.canUpload && stats.unusedInvalid < 50 && !isTraining
                 ? 'bg-red-500 text-white hover:bg-red-600 active:scale-95'
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed opacity-50'
             }`}

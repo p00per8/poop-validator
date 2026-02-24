@@ -48,6 +48,7 @@ export default function TrainingDashboard() {
   
   // NUOVI STATE per grafici e previsioni
   const [dailyActivities, setDailyActivities] = useState([])
+  const [modelVersions, setModelVersions] = useState([])
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [prediction, setPrediction] = useState(null)
@@ -116,6 +117,7 @@ export default function TrainingDashboard() {
         setInsights(analysis)
       }
 
+      await loadModelVersions()
       setLoading(false)
       
       // Carica dati attività dopo aver impostato le stats
@@ -127,6 +129,22 @@ export default function TrainingDashboard() {
     } catch (error) {
       console.error('Error loading dashboard:', error)
       setLoading(false)
+    }
+  }
+
+  async function loadModelVersions() {
+    try {
+      const { data, error } = await supabase
+        .from('model_versions')
+        .select('*')
+        .eq('status', 'completed')
+        .order('created_at', { ascending: false })
+
+      if (!error && data) {
+        setModelVersions(data)
+      }
+    } catch (e) {
+      console.error('Errore caricamento model_versions:', e)
     }
   }
 
@@ -1340,6 +1358,154 @@ export default function TrainingDashboard() {
                 </p>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* === MODELLI TRAINATI === */}
+        {modelVersions.length > 0 && (
+          <div className="mb-8">
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">🧠 Modelli Trainati</h2>
+
+            {modelVersions.map((mv, idx) => {
+              const m = mv.metrics || {}
+              const cm = m.confusion_matrix || [[0,0],[0,0]]
+              const tn = cm[0]?.[0] ?? 0
+              const fp = cm[0]?.[1] ?? 0
+              const fn = cm[1]?.[0] ?? 0
+              const tp = cm[1]?.[1] ?? 0
+              const trainedAt = new Date(mv.created_at).toLocaleString('it-IT', {
+                day: '2-digit', month: '2-digit', year: 'numeric',
+                hour: '2-digit', minute: '2-digit'
+              })
+
+              return (
+                <div key={mv.id || idx} className={`bg-white rounded-2xl shadow-xl border-2 p-8 mb-4 ${idx === 0 ? 'border-purple-300' : 'border-gray-200'}`}>
+                  {/* Header */}
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-3xl font-bold text-purple-700">{mv.version}</span>
+                        {idx === 0 && (
+                          <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-bold">ULTIMO</span>
+                        )}
+                      </div>
+                      <div className="text-sm text-gray-500 mt-1">Trainato il {trainedAt} • {mv.total_photos} foto • {m.model_type || 'RandomForest'} {m.n_estimators || 200} alberi</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-4xl font-bold text-green-600">{((m.val_accuracy || 0) * 100).toFixed(1)}%</div>
+                      <div className="text-sm text-gray-500">Val. Accuracy</div>
+                    </div>
+                  </div>
+
+                  {/* Metrics Row */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div className="bg-green-50 border-2 border-green-200 rounded-xl p-4 text-center">
+                      <div className="text-xs text-green-700 font-medium mb-1">Train Accuracy</div>
+                      <div className="text-2xl font-bold text-green-800">{((m.train_accuracy || 0) * 100).toFixed(1)}%</div>
+                    </div>
+                    <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 text-center">
+                      <div className="text-xs text-blue-700 font-medium mb-1">Precision</div>
+                      <div className="text-2xl font-bold text-blue-800">{((m.val_precision || 0) * 100).toFixed(1)}%</div>
+                      <div className="text-xs text-blue-500 mt-1">Predizioni positive corrette</div>
+                    </div>
+                    <div className="bg-orange-50 border-2 border-orange-200 rounded-xl p-4 text-center">
+                      <div className="text-xs text-orange-700 font-medium mb-1">Recall</div>
+                      <div className="text-2xl font-bold text-orange-800">{((m.val_recall || 0) * 100).toFixed(1)}%</div>
+                      <div className="text-xs text-orange-500 mt-1">Valide trovate su totale valide</div>
+                    </div>
+                    <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-4 text-center">
+                      <div className="text-xs text-purple-700 font-medium mb-1">F1 Score</div>
+                      <div className="text-2xl font-bold text-purple-800">{((m.val_f1 || 0) * 100).toFixed(1)}%</div>
+                      <div className="text-xs text-purple-500 mt-1">Media armonica P/R</div>
+                    </div>
+                  </div>
+
+                  {/* Confusion Matrix + Dataset Split */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Confusion Matrix */}
+                    <div className="bg-gray-50 rounded-xl p-5">
+                      <h4 className="font-bold text-gray-800 mb-1">Matrice di Confusione (validazione)</h4>
+                      <p className="text-xs text-gray-500 mb-4">Predizioni del modello sulle foto di validazione</p>
+                      <div className="grid grid-cols-3 gap-1 max-w-xs">
+                        {/* Header */}
+                        <div />
+                        <div className="text-center text-xs font-bold text-green-700 pb-1">Pred. Valida</div>
+                        <div className="text-center text-xs font-bold text-red-700 pb-1">Pred. Invalida</div>
+                        {/* Row 1 */}
+                        <div className="text-right text-xs font-bold text-green-700 flex items-center justify-end pr-2">Vera Valida</div>
+                        <div className="bg-green-100 border-2 border-green-400 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-green-800">{tp}</div>
+                          <div className="text-xs text-green-600">TP</div>
+                        </div>
+                        <div className="bg-red-50 border-2 border-red-200 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-red-400">{fn}</div>
+                          <div className="text-xs text-red-400">FN</div>
+                        </div>
+                        {/* Row 2 */}
+                        <div className="text-right text-xs font-bold text-red-700 flex items-center justify-end pr-2">Vera Invalida</div>
+                        <div className="bg-red-50 border-2 border-red-200 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-red-400">{fp}</div>
+                          <div className="text-xs text-red-400">FP</div>
+                        </div>
+                        <div className="bg-green-100 border-2 border-green-400 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-green-800">{tn}</div>
+                          <div className="text-xs text-green-600">TN</div>
+                        </div>
+                      </div>
+                      <div className="mt-3 text-xs text-gray-500 space-y-0.5">
+                        <div><span className="font-semibold text-green-700">TP/TN</span> = corretti · <span className="font-semibold text-red-500">FP</span> = foto invalide classificate valide · <span className="font-semibold text-red-500">FN</span> = foto valide mancate</div>
+                      </div>
+                    </div>
+
+                    {/* Dataset Info */}
+                    <div className="bg-gray-50 rounded-xl p-5">
+                      <h4 className="font-bold text-gray-800 mb-3">Dataset utilizzato</h4>
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600">Foto training (80%)</span>
+                          <span className="font-bold text-gray-800">{m.train_samples || '—'}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600">Foto validazione (20%)</span>
+                          <span className="font-bold text-gray-800">{m.val_samples || '—'}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600">Features per foto</span>
+                          <span className="font-bold text-gray-800">{m.n_features || 922}</span>
+                        </div>
+                        <div className="pt-2 border-t border-gray-200">
+                          <div className="text-xs text-gray-500 mb-2">Distribuzione classi (training+val)</div>
+                          <div className="flex gap-3">
+                            <div className="flex items-center gap-1">
+                              <span className="w-3 h-3 bg-green-500 rounded-full inline-block" />
+                              <span className="text-sm">Valide: {m.class_distribution?.[1] || '—'}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="w-3 h-3 bg-red-500 rounded-full inline-block" />
+                              <span className="text-sm">Invalide: {m.class_distribution?.[0] || '—'}</span>
+                            </div>
+                          </div>
+                        </div>
+                        {m.train_accuracy && m.val_accuracy && (
+                          <div className="pt-2 border-t border-gray-200">
+                            <div className="text-xs text-gray-500 mb-1">Overfitting check</div>
+                            <div className="text-sm">
+                              Delta train/val:{' '}
+                              <span className={`font-bold ${Math.abs(m.train_accuracy - m.val_accuracy) > 0.1 ? 'text-orange-600' : 'text-green-600'}`}>
+                                {((m.train_accuracy - m.val_accuracy) * 100).toFixed(1)}pp
+                              </span>
+                              {Math.abs(m.train_accuracy - m.val_accuracy) > 0.1
+                                ? ' — possibile overfitting'
+                                : ' — buona generalizzazione'}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
 
