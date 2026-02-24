@@ -64,12 +64,12 @@ export default function TrainingApp() {
   }, [isAuthenticated])
 
   useEffect(() => {
-    // Cleanup polling on unmount
-    return () => {
-      if (isTraining) {
-        setIsTraining(false)
-        setTrainingProgress(null)
-      }
+    // Resume training poll se era attivo prima del reload/chiusura pagina
+    const activeVersion = localStorage.getItem('training_active_version')
+    if (activeVersion) {
+      setIsTraining(true)
+      setTrainingProgress({ progress: 50, status: 'Ripristino training in corso...' })
+      pollTrainingStatus(activeVersion)
     }
   }, [])
 
@@ -464,8 +464,8 @@ export default function TrainingApp() {
               />
             </div>
 
-            <p className="text-center text-sm text-red-600 font-medium mt-4">
-              ⚠️ Non chiudere questa pagina durante il training
+            <p className="text-center text-sm text-purple-600 font-medium mt-4">
+              ✅ Il training continua anche se chiudi o aggiorni la pagina
             </p>
           </div>
         </div>
@@ -553,25 +553,47 @@ export default function TrainingApp() {
         </div>
       )}
 
-      {/* Timer */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-gray-200 p-4 shadow-lg z-40">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <span className="text-gray-700 font-medium">⏱️ Sessione scade tra:</span>
-            <span className={`text-xl font-bold ${
-              timeRemaining && timeRemaining < 60000 ? 'text-red-600' : 'text-green-600'
-            }`}>
-              {formatTimeRemaining(timeRemaining)}
-            </span>
+      {/* Bottom Bar - Training persistente o Timer sessione */}
+      <div className={`fixed bottom-0 left-0 right-0 border-t-2 shadow-lg z-40 ${
+        isTraining ? 'bg-purple-50 border-purple-400' : 'bg-white border-gray-200'
+      }`}>
+        {isTraining && trainingProgress ? (
+          <div className="px-4 py-3">
+            <div className="max-w-4xl mx-auto">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-purple-800 font-bold text-sm">
+                  🧠 Training in corso... {trainingProgress.progress}%
+                </span>
+                <span className="text-purple-600 text-xs">{trainingProgress.status}</span>
+              </div>
+              <div className="w-full bg-purple-200 rounded-full h-2">
+                <div
+                  className="bg-gradient-to-r from-purple-600 to-indigo-600 h-2 rounded-full transition-all duration-500"
+                  style={{ width: `${trainingProgress.progress}%` }}
+                />
+              </div>
+            </div>
           </div>
-          
-          <button
-            onClick={handleLogout}
-            className="text-sm text-red-600 hover:text-red-800 font-medium"
-          >
-            🚪 Logout
-          </button>
-        </div>
+        ) : isAuthenticated ? (
+          <div className="p-4">
+            <div className="max-w-4xl mx-auto flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <span className="text-gray-700 font-medium">⏱️ Sessione scade tra:</span>
+                <span className={`text-xl font-bold ${
+                  timeRemaining && timeRemaining < 60000 ? 'text-red-600' : 'text-green-600'
+                }`}>
+                  {formatTimeRemaining(timeRemaining)}
+                </span>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="text-sm text-red-600 hover:text-red-800 font-medium"
+              >
+                🚪 Logout
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <style jsx>{`
