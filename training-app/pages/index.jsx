@@ -187,8 +187,9 @@ export default function TrainingApp() {
       const data = await response.json()
 
       if (data.success) {
+        localStorage.setItem('training_active_version', data.version)
         showMessage('success', '✅ Training avviato!', 5000)
-        pollTrainingStatus()
+        pollTrainingStatus(data.version)
       } else {
         throw new Error(data.error || 'Failed to start training')
       }
@@ -201,11 +202,11 @@ export default function TrainingApp() {
     }
   }
 
-  const pollTrainingStatus = () => {
+  const pollTrainingStatus = (version) => {
     const pollInterval = setInterval(async () => {
       try {
         const cloudRunUrl = process.env.NEXT_PUBLIC_CLOUD_RUN_URL
-        const response = await fetch(`${cloudRunUrl}/training-status/v1.0`)
+        const response = await fetch(`${cloudRunUrl}/training-status/${version}`)
 
         if (!response.ok) {
           throw new Error('Failed to get training status')
@@ -215,23 +216,25 @@ export default function TrainingApp() {
 
         if (data.status === 'completed') {
           clearInterval(pollInterval)
+          localStorage.removeItem('training_active_version')
           setIsTraining(false)
           setTrainingProgress(null)
 
           showMessage(
             'success',
-            `🎉 Training completato! Accuracy: ${(data.accuracy * 100).toFixed(1)}%`,
+            `🎉 Training completato! Accuracy: ${(data.train_accuracy * 100).toFixed(1)}%`,
             10000
           )
 
           await loadStats()
-        } else if (data.status === 'in_progress') {
+        } else if (data.status === 'training') {
           setTrainingProgress({
             progress: data.progress || 50,
             status: data.message || 'Training in corso...'
           })
         } else if (data.status === 'failed') {
           clearInterval(pollInterval)
+          localStorage.removeItem('training_active_version')
           setIsTraining(false)
           setTrainingProgress(null)
           showMessage('error', `❌ Training fallito: ${data.error}`)
