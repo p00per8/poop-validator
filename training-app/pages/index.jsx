@@ -14,8 +14,17 @@ export default function TrainingApp() {
     valid: 0,
     invalid: 0,
     total: 0,
+    unusedValid: 0,
+    unusedInvalid: 0,
+    unusedTotal: 0,
+    unusedExplicitFalse: 0,
+    unusedReadyForTraining: 0,
+    unusedValidReady: 0,
+    unusedInvalidReady: 0,
+    photosMissingFeatures: 0,
     canUpload: true
   })
+  const [backfillLoading, setBackfillLoading] = useState(false)
   const [mode, setMode] = useState(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -111,17 +120,29 @@ export default function TrainingApp() {
     return null
   }
 
+  /** Riga ancora disponibile per un nuovo training (solo `true` = già usata). */
+  const isNotYetUsed = (p) => p.used_in_training !== true
+
+  /** Molti backend contano solo `used_in_training = false` e ignorano NULL in SQL. */
+  const isUnusedStrictDb = (p) => p.used_in_training === false
+
+  const hasUsableFeatures = (p) => {
+    const f = p.features
+    if (f == null) return false
+    if (Array.isArray(f)) return f.length > 0
+    if (typeof f === 'object') return Object.keys(f).length > 0
+    return false
+  }
+
   const loadStats = async () => {
     setStatsLoading(true)
     try {
-      // Query con image_url e used_in_training per distinguere foto nuove da già usate
       const { data: photos, error } = await supabase
         .from('training_photos')
-        .select('label, image_url, used_in_training')
+        .select('label, image_url, used_in_training, features')
 
       if (error) throw error
 
-      // Determina label dal filename (priorità) o dal campo database (fallback)
       const photosWithLabels = photos.map(p => ({
         ...p,
         effectiveLabel: getLabelFromFilename(p.image_url) || p.label
@@ -131,10 +152,18 @@ export default function TrainingApp() {
       const invalid = photosWithLabels.filter(p => p.effectiveLabel === 'invalid').length
       const total = photos.length
 
-      // Foto non ancora usate in training (per il prossimo round)
-      const unusedValid = photosWithLabels.filter(p => p.effectiveLabel === 'valid' && !p.used_in_training).length
-      const unusedInvalid = photosWithLabels.filter(p => p.effectiveLabel === 'invalid' && !p.used_in_training).length
-      const unusedTotal = photos.filter(p => !p.used_in_training).length
+      const unusedValid = photosWithLabels.filter(p => p.effectiveLabel === 'valid' && isNotYetUsed(p)).length
+      const unusedInvalid = photosWithLabels.filter(p => p.effectiveLabel === 'invalid' && isNotYetUsed(p)).length
+      const unusedTotal = photos.filter(isNotYetUsed).length
+
+      const unusedExplicitFalse = photos.filter(isUnusedStrictDb).length
+      const unusedReadyForTraining = photos.filter(p => isNotYetUsed(p) && hasUsableFeatures(p)).length
+      const unusedValidReady = photosWithLabels.filter(p =>
+        p.effectiveLabel === 'valid' && isNotYetUsed(p) && hasUsableFeatures(p)).length
+      const unusedInvalidReady = photosWithLabels.filter(p =>
+        p.effectiveLabel === 'invalid' && isNotYetUsed(p) && hasUsableFeatures(p)).length
+
+      const photosMissingFeatures = photos.filter(p => !hasUsableFeatures(p)).length
 
       setStats({
         valid,
@@ -143,11 +172,15 @@ export default function TrainingApp() {
         unusedValid,
         unusedInvalid,
         unusedTotal,
+        unusedExplicitFalse,
+        unusedReadyForTraining,
+        unusedValidReady,
+        unusedInvalidReady,
+        photosMissingFeatures,
         canUpload: true
       })
     } catch (error) {
       console.error('Error loading stats:', error)
-      // Fallback: mostra 0 senza errore
       setStats({
         valid: 0,
         invalid: 0,
@@ -155,10 +188,54 @@ export default function TrainingApp() {
         unusedValid: 0,
         unusedInvalid: 0,
         unusedTotal: 0,
+        unusedExplicitFalse: 0,
+        unusedReadyForTraining: 0,
+        unusedValidReady: 0,
+        unusedInvalidReady: 0,
+        photosMissingFeatures: 0,
         canUpload: true
       })
     } finally {
       setStatsLoading(false)
+    }
+  }
+
+  const handleBackfillFeatures = async () => {
+    const n = stats.photosMissingFeatures ?? 0
+    if (n === 0) {
+      showMessage('info', 'Nessuna foto senza features.')
+      return
+    }
+    const ok = confirm(
+      `Estrarre le features per le foto che ne sono prive?\n\n` +
+        `Cloud Run elaborerà fino a ${n} record (tutte quelle con features NULL nel DB).\n` +
+        `Può richiedere diversi minuti.`
+    )
+    if (!ok) return
+
+    setBackfillLoading(true)
+    showMessage('info', '⏳ Backfill features in corso via Cloud Run…', 5000)
+    try {
+      const response = await fetch('/api/backfill-features', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error || `Errore HTTP ${response.status}`)
+      }
+      const st = data.stats
+      const msg = st
+        ? `Completato: ${st.success} ok, ${st.errors || 0} errori su ${st.total} foto.`
+        : (data.message || 'Backfill completato.')
+      showMessage('success', msg, 10000)
+      await loadStats()
+    } catch (err) {
+      console.error('Backfill:', err)
+      showMessage('error', err.message || 'Backfill fallito', 8000)
+    } finally {
+      setBackfillLoading(false)
     }
   }
 
@@ -170,9 +247,10 @@ export default function TrainingApp() {
   }
 
   const handleTrainModel = async () => {
+    const ready = stats.unusedReadyForTraining ?? 0
     const confirmed = confirm(
-      `🧠 Stai per avviare il training del modello con ${stats.unusedTotal} foto nuove.\n\n` +
-      `Questo processo può richiedere diversi minuti.\n\n` +
+      `🧠 Training con ${ready} foto contate dal server (non usate + con features).\n` +
+      `(Nuove in senso lato: ${stats.unusedTotal}; con flag DB esplicito false: ${stats.unusedExplicitFalse})\n\n` +
       `Continuare?`
     )
 
@@ -184,15 +262,35 @@ export default function TrainingApp() {
 
     try {
       const cloudRunUrl = process.env.NEXT_PUBLIC_CLOUD_RUN_URL
+      if (!cloudRunUrl) {
+        throw new Error('Cloud Run URL non configurato (NEXT_PUBLIC_CLOUD_RUN_URL)')
+      }
       const response = await fetch(`${cloudRunUrl}/train-model`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ min_photos: 100 })
+        body: JSON.stringify({
+          min_photos: 100,
+          client_counts: {
+            unused_loose: stats.unusedTotal,
+            unused_strict_false: stats.unusedExplicitFalse,
+            unused_with_features: ready,
+            unused_valid_ready: stats.unusedValidReady,
+            unused_invalid_ready: stats.unusedInvalidReady
+          }
+        })
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Training failed to start')
+        let msg = `HTTP ${response.status}`
+        try {
+          const errorData = await response.json()
+          msg = errorData.error || errorData.message || msg
+        } catch {
+          try {
+            msg = (await response.text()) || msg
+          } catch { /* ignore */ }
+        }
+        throw new Error(msg)
       }
 
       const data = await response.json()
@@ -431,15 +529,54 @@ export default function TrainingApp() {
             </div>
 
             <div className="bg-white rounded-lg shadow-md p-4 text-center">
-              <div className="text-3xl font-bold text-blue-600">{stats.unusedTotal}</div>
-              <div className="text-sm text-gray-600 mt-1">📊 Nuove</div>
+              <div className="text-3xl font-bold text-blue-600">{stats.unusedReadyForTraining ?? stats.unusedTotal}</div>
+              <div className="text-sm text-gray-600 mt-1">📊 Pronte per il train</div>
+              <div className="text-xs text-gray-500 mt-1">(non usate + con features)</div>
+              {(stats.unusedTotal !== stats.unusedReadyForTraining) && (
+                <div className="text-xs text-amber-600 mt-1">Altrimenti “nuove”: {stats.unusedTotal}</div>
+              )}
               {stats.total > stats.unusedTotal && (
-                <div className="text-xs text-gray-400 mt-0.5">{stats.total} totali</div>
+                <div className="text-xs text-gray-400 mt-0.5">{stats.total} totali in DB</div>
               )}
             </div>
           </>
         )}
       </div>
+
+      {!statsLoading && stats.unusedTotal > (stats.unusedExplicitFalse ?? 0) && (
+        <div className="max-w-4xl mx-auto mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <strong>Attenzione:</strong> alcune foto hanno <code>used_in_training</code> a <strong>NULL</strong>.
+          La UI le considera “nuove”, ma molti backend contano solo <code>false</code> esplicito e rispondono “not enough photos”.
+          In Supabase SQL: <code className="select-all">UPDATE training_photos SET used_in_training = false WHERE used_in_training IS NULL;</code>
+        </div>
+      )}
+
+      {!statsLoading && (stats.photosMissingFeatures ?? 0) > 0 && (
+        <div className="max-w-4xl mx-auto mb-4 rounded-lg border border-orange-300 bg-orange-50 p-4 text-sm text-orange-900 space-y-3">
+          <p>
+            <strong>Features mancanti:</strong> {stats.photosMissingFeatures} foto nel database senza vettore di features
+            {stats.unusedTotal > (stats.unusedReadyForTraining ?? 0) && (
+              <> (di cui ~{stats.unusedTotal - (stats.unusedReadyForTraining ?? 0)} ancora &quot;nuove&quot; per il training)</>
+            )}
+            . Il train le ignora finché non sono estratte.
+          </p>
+          <p className="text-xs text-orange-800 opacity-90">
+            Richiede <code className="bg-orange-100 px-1 rounded">CLOUD_RUN_SECRET_KEY</code> in <code>.env.local</code> (stesso Bearer accettato da <code>/backfill-features</code> su Cloud Run).
+          </p>
+          <button
+            type="button"
+            onClick={handleBackfillFeatures}
+            disabled={backfillLoading || isTraining}
+            className={`w-full sm:w-auto px-5 py-2.5 rounded-lg font-semibold text-white shadow ${
+              backfillLoading || isTraining
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-orange-600 hover:bg-orange-700'
+            }`}
+          >
+            {backfillLoading ? '⏳ Estrazione in corso…' : '🔧 Estrai features (Cloud Run)'}
+          </button>
+        </div>
+      )}
 
       {/* Training Ready Banner */}
       {!statsLoading && stats.unusedValid >= 50 && stats.unusedInvalid >= 50 && (
@@ -453,15 +590,21 @@ export default function TrainingApp() {
         </div>
       )}
 
-      {/* Training Button */}
-      {!statsLoading && stats.unusedTotal >= 100 && !isTraining && (
+      {/* Training Button: stesse soglie del dataset + solo foto che il backend può usare (features) */}
+      {!statsLoading &&
+        (stats.unusedReadyForTraining ?? 0) >= 100 &&
+        (stats.unusedValidReady ?? 0) >= 50 &&
+        (stats.unusedInvalidReady ?? 0) >= 50 &&
+        !isTraining && (
         <div className="max-w-4xl mx-auto mb-6">
           <button
             onClick={handleTrainModel}
             className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-8 py-4 rounded-lg font-bold shadow-lg hover:opacity-90 transition-opacity active:scale-95"
           >
             <div className="text-2xl mb-1">🧠 TRAIN NUOVO MODELLO</div>
-            <div className="text-sm opacity-90">({stats.unusedTotal} foto nuove pronte)</div>
+            <div className="text-sm opacity-90">
+              ({stats.unusedReadyForTraining} con features — valide {stats.unusedValidReady} / invalide {stats.unusedInvalidReady})
+            </div>
           </button>
         </div>
       )}

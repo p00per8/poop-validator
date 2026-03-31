@@ -134,15 +134,28 @@ export default function TrainingDashboard() {
 
   async function loadModelVersions() {
     try {
-      const { data, error } = await supabase
+      // Storico completo: niente filtro su status (righe legacy con status NULL
+      // o 'failed' comparivano prima "sparite" con .eq('status','completed')).
+      let { data, error } = await supabase
         .from('model_versions')
         .select('*')
-        .eq('status', 'completed')
         .order('created_at', { ascending: false })
 
-      if (!error && data) {
-        setModelVersions(data)
+      if (error) {
+        const r2 = await supabase
+          .from('model_versions')
+          .select('*')
+          .order('trained_at', { ascending: false })
+        data = r2.data
+        error = r2.error
       }
+
+      if (error) {
+        console.error('Errore caricamento model_versions:', error)
+        return
+      }
+
+      setModelVersions(data || [])
     } catch (e) {
       console.error('Errore caricamento model_versions:', e)
     }
@@ -1373,7 +1386,7 @@ export default function TrainingDashboard() {
               const fp = cm[0]?.[1] ?? 0
               const fn = cm[1]?.[0] ?? 0
               const tp = cm[1]?.[1] ?? 0
-              const trainedAt = new Date(mv.created_at).toLocaleString('it-IT', {
+              const trainedAt = new Date(mv.created_at || mv.trained_at).toLocaleString('it-IT', {
                 day: '2-digit', month: '2-digit', year: 'numeric',
                 hour: '2-digit', minute: '2-digit'
               })
